@@ -15,7 +15,7 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             'id', 'email', 'user_type', 'is_active', 'is_verified',
-            'profile_picture_url', 'timezone', 'registration_date',
+            'profile_picture_url', 'user_timezone', 'registration_date',
             'last_login_date'
         ]
         read_only_fields = [
@@ -29,7 +29,7 @@ class UserRegistrationSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ['email', 'user_type', 'password', 'password_confirm', 'timezone']
+        fields = ['email', 'user_type', 'password', 'password_confirm', 'user_timezone']
 
     def validate(self, attrs):
         # Only validation logic here

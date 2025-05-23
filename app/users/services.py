@@ -162,7 +162,7 @@ class UserService:
             'user_type': user.user_type,
             'is_verified': user.is_verified,
             'profile_picture_url': user.profile_picture_url,
-            'timezone': user.timezone,
+            'user_timezone': user.user_timezone,
             'registration_date': user.registration_date,
         }
 
