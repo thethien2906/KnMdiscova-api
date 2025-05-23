@@ -84,7 +84,11 @@ class LoginSerializer(serializers.Serializer):
                     _("User account is disabled"),
                     code='authorization'
                 )
-
+            if not user.is_verified:
+                raise serializers.ValidationError(
+                    _("User account is not verified"),
+                    code='authorization'
+                )
             attrs['user'] = user
             return attrs
         else:
@@ -149,3 +153,4 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
             raise serializers.ValidationError(message)
 
         return {'user': user, 'message': message}
+

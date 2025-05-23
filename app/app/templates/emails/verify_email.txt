@@ -1,0 +1,12 @@
+Welcome to {{ site_name }}!
+
+Hi {{ user.email }},
+
+Thank you for registering. Please verify your email address by clicking the link below:
+
+{{ verification_link }}
+
+If you didn't create an account, please ignore this email.
+
+Best regards,
+The {{ site_name }} Team

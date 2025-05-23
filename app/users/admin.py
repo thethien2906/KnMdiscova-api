@@ -19,7 +19,7 @@ class UserAdmin(BaseUserAdmin):
     fieldsets = (
         (None, {'fields': ('email', 'password')}),
         (_('Personal info'), {
-            'fields': ('user_type', 'profile_picture_url', 'timezone')
+            'fields': ('user_type', 'profile_picture_url', 'user_timezone')
         }),
         (_('Permissions'), {
             'fields': ('is_active', 'is_verified', 'is_staff', 'is_superuser',
