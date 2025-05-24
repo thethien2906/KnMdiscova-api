@@ -19,7 +19,7 @@ jobs:
             - name: Test
               env:
                 DEBUG: False
-                DB_HOST: localhost
+                DB_HOST: db
                 DB_NAME: devdb
                 DB_USER: devuser
                 DB_PASSWORD: changeme

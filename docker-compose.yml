@@ -1,36 +1,45 @@
-version: "3.9"
-
-services:
+services:  # Remove version line (obsolete)
   app:
-    env_file:
-      - .env
     build:
       context: .
       args:
         - DEV=true
     ports:
-      - "8080:8080"
+      - "8000:8000"  # Changed from 8080
     volumes:
       - ./app:/app
     command: >
       sh -c "python manage.py wait_for_db &&
              python manage.py migrate &&
-             python manage.py runserver 0.0.0.0:8080"
+             python manage.py runserver 0.0.0.0:8000"
     environment:
-      - DB_HOST=db
-      - DB_NAME=devdb
-      - DB_USER=devuser
-      - DB_PASSWORD=devpassword
+      # Use environment variables from GitHub Actions, with fallbacks for local dev
+      - DEBUG=${DEBUG:-true}
+      - DB_HOST=${DB_HOST:-db}
+      - DB_NAME=${DB_NAME:-devdb}
+      - DB_USER=${DB_USER:-devuser}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
+      - SECRET_KEY=${SECRET_KEY:-your-local-dev-secret}
+      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-K&Mdiscova <noreply@kmdiscova.com>}
+      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5174}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
+      - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
     depends_on:
       - db
-
 
   db:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=devuser
-      - POSTGRES_PASSWORD=devpassword
-      - POSTGRES_DB=devdb
+      - POSTGRES_USER=${DB_USER:-devuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
+      - POSTGRES_DB=${DB_NAME:-devdb}
     volumes:
       - dev-db-data:/var/lib/postgresql/data
 
