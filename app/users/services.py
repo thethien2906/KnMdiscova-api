@@ -1,3 +1,4 @@
+# users/services.py
 from django.core.mail import send_mail, EmailMultiAlternatives
 from django.conf import settings
 from django.template.loader import render_to_string
@@ -256,7 +257,7 @@ class AuthenticationService:
             token = token_generator.make_token(user)
             uidb64 = token_generator.encode_uid(user)
 
-            reset_link = f"{settings.FRONTEND_URL}/api/auth/password-reset/{uidb64}/{token}/"
+            reset_link = f"{settings.FRONTEND_URL}/reset-password/{uidb64}/{token}/"
 
             context = {
                 'user': user,

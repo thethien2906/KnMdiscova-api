@@ -1,3 +1,4 @@
+# users/views.py
 from rest_framework import status, permissions
 from rest_framework.decorators import action
 from rest_framework.response import Response
@@ -306,7 +307,7 @@ class PasswordResetConfirmView(APIView):
         },
         description="Confirm password reset with token and new password"
     )
-    def post(self, request):
+    def post(self, request, *args, **kwargs):  # Changed this line
         """
         Confirm password reset using token
         POST /api/auth/password-reset-confirm/
@@ -325,7 +326,6 @@ class PasswordResetConfirmView(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
 
 @extend_schema(tags=['User Management'])
 class UserViewSet(GenericViewSet):
