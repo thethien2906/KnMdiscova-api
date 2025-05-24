@@ -172,16 +172,20 @@ class LoginSerializerTests(TestCase):
         self.user = User.objects.create_user(
             email='test@example.com',
             password='testpass123',
-            user_type='Parent'
+            user_type='Parent',
+            is_active=True,
+            is_verified=True
         )
         self.valid_data = {
             'email': 'test@example.com',
-            'password': 'testpass123'
+            'password': 'testpass123',
+
         }
 
     def test_valid_login(self):
         """Test successful login with valid credentials"""
         request = self.factory.post('/login/')
+
         serializer = LoginSerializer(
             data=self.valid_data,
             context={'request': request}

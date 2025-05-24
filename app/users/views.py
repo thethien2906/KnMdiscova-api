@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework.viewsets import GenericViewSet
+from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
 from rest_framework.authtoken.models import Token
 from django.contrib.auth import login, logout
 from django.utils.translation import gettext_lazy as _
@@ -328,7 +329,7 @@ class PasswordResetConfirmView(APIView):
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @extend_schema(tags=['User Management'])
-class UserViewSet(GenericViewSet):
+class UserViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """
     ViewSet for user management (admin use)
     """
