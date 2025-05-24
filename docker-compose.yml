@@ -5,7 +5,7 @@ services:  # Remove version line (obsolete)
       args:
         - DEV=true
     ports:
-      - "8000:8000"  # Changed from 8080
+      - "8000:8000"
     volumes:
       - ./app:/app
     command: >
@@ -28,7 +28,7 @@ services:  # Remove version line (obsolete)
       - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
       - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
       - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-K&Mdiscova <noreply@kmdiscova.com>}
-      - FRONTEND_URL=${FRONTEND_URL:-http://localhost:5174}
+      - FRONTEND_URL=http://127.0.0.1:8000
       - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
       - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
     depends_on:

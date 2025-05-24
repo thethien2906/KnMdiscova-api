@@ -34,7 +34,7 @@ jobs:
                 EMAIL_HOST_PASSWORD: ""
                 DEFAULT_FROM_EMAIL: "K&Mdiscova <noreply@kmdiscova.com>"
                 # Frontend URL for tests
-                FRONTEND_URL: "http://localhost:3000"
+                FRONTEND_URL: "http://localhost:8000"
                 # Support email
                 SUPPORT_EMAIL: "support@kmdiscova.com"
                 COMPANY_ADDRESS: ""
