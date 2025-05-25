@@ -3,100 +3,105 @@ from rest_framework import permissions
 from django.utils.translation import gettext_lazy as _
 
 
-class IsParent(permissions.BasePermission):
+class IsParentOwner(permissions.BasePermission):
     """
-    Custom permission to only allow parents to access parent-specific views.
+    Permission to only allow parents to access their own profile
     """
-    message = _("You must be a parent to access this resource.")
+    message = _("You can only access your own parent profile.")
 
     def has_permission(self, request, view):
         """
-        Check if the user is authenticated and is a parent.
+        Check if user is authenticated and is a parent
         """
         return (
-            request.user and
             request.user.is_authenticated and
-            hasattr(request.user, 'user_type') and
             request.user.user_type == 'Parent'
         )
 
     def has_object_permission(self, request, view, obj):
         """
-        Check if the parent can access this specific object.
-        Parents can only access their own profile.
+        Check if the parent profile belongs to the requesting user
         """
-        # If obj is a Parent instance
-        if hasattr(obj, 'user'):
-            return obj.user == request.user
-
-        # If obj is related to a parent (future use for children, etc.)
-        if hasattr(obj, 'parent'):
-            return obj.parent.user == request.user
-
-        return False
+        # obj should be a Parent instance
+        return obj.user == request.user
 
 
-class IsParentOrReadOnly(permissions.BasePermission):
+class IsParentOwnerOrReadOnly(permissions.BasePermission):
     """
-    Custom permission to allow parents full access and others read-only access.
-    Useful for shared resources that parents can modify but others can view.
+    Permission to allow:
+    - Parents: full access to their own profile
+    - Psychologists: read-only access to their clients' parent profiles
+    - Admins: full access to all parent profiles
     """
+    message = _("You don't have permission to access this parent profile.")
 
     def has_permission(self, request, view):
         """
-        Read permissions are allowed to any authenticated user,
-        but write permissions are only allowed to parents.
+        Check basic permission requirements
         """
-        if not request.user or not request.user.is_authenticated:
+        if not request.user.is_authenticated:
             return False
 
-        # Read-only methods
-        if request.method in permissions.SAFE_METHODS:
+        # Admins have full access
+        if request.user.is_admin or request.user.is_staff:
             return True
 
-        # Write methods require parent user type
-        return (
-            hasattr(request.user, 'user_type') and
-            request.user.user_type == 'Parent'
-        )
+        # Parents can access their own profiles
+        if request.user.user_type == 'Parent':
+            return True
+
+        # Psychologists can have read-only access
+        if request.user.user_type == 'Psychologist' and request.method in permissions.SAFE_METHODS:
+            return True
+
+        return False
 
     def has_object_permission(self, request, view, obj):
         """
-        Read permissions are allowed to authenticated users,
-        but write permissions are only allowed to the parent who owns the object.
+        Check object-level permissions
         """
-        # Read permissions
-        if request.method in permissions.SAFE_METHODS:
+        # Admins have full access
+        if request.user.is_admin or request.user.is_staff:
             return True
 
-        # Write permissions - check ownership
-        if hasattr(obj, 'user'):
-            return obj.user == request.user
+        # Parents can access their own profile
+        if request.user.user_type == 'Parent' and obj.user == request.user:
+            return True
 
-        if hasattr(obj, 'parent'):
-            return obj.parent.user == request.user
+        # Psychologists can read parent profiles of their clients
+        if (request.user.user_type == 'Psychologist' and
+            request.method in permissions.SAFE_METHODS):
+            # TODO: Add logic to check if psychologist has worked with this parent's children
+            # For now, allow read access to any parent profile for psychologists
+            # Later: return obj.children.filter(appointments__psychologist__user=request.user).exists()
+            return True
 
         return False
 
 
-class IsOwnerOrAdmin(permissions.BasePermission):
+class IsAdminOrReadOnlyForPsychologist(permissions.BasePermission):
     """
-    Custom permission to only allow owners of an object or admins to access it.
+    Permission for administrative functions:
+    - Admins: full access
+    - Psychologists: read-only access
+    - Parents: no access
     """
+    message = _("You don't have permission to perform this action.")
 
-    def has_object_permission(self, request, view, obj):
+    def has_permission(self, request, view):
         """
-        Object-level permission to only allow owners or admins.
+        Check if user has permission for this view
         """
-        # Admin users have full access
-        if request.user and request.user.is_staff:
+        if not request.user.is_authenticated:
+            return False
+
+        # Admins have full access
+        if request.user.is_admin or request.user.is_staff:
             return True
 
-        # Check if the user owns the object
-        if hasattr(obj, 'user'):
-            return obj.user == request.user
-
-        if hasattr(obj, 'parent'):
-            return obj.parent.user == request.user
+        # Psychologists have read-only access
+        if (request.user.user_type == 'Psychologist' and
+            request.method in permissions.SAFE_METHODS):
+            return True
 
         return False
