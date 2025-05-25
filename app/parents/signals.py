@@ -28,15 +28,3 @@ def create_parent_profile(sender, instance, created, **kwargs):
         except Exception as e:
             logger.error(f"Failed to create parent profile for user {instance.email}: {str(e)}")
             # Don't raise the exception to avoid breaking user creation
-
-
-@receiver(post_save, sender=User)
-def save_parent_profile(sender, instance, **kwargs):
-    """
-    Save Parent profile when user is saved (if it exists)
-    """
-    if instance.user_type == 'Parent' and hasattr(instance, 'parent_profile'):
-        try:
-            instance.parent_profile.save()
-        except Exception as e:
-            logger.error(f"Failed to save parent profile for user {instance.email}: {str(e)}")

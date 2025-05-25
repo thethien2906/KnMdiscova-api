@@ -32,8 +32,6 @@ class Parent(models.Model):
     )
 
     # Contact Information
-    # In parents/models.py, update the phone_number field:
-
     phone_number = models.CharField(
         _('phone number'),
         max_length=20,
@@ -116,7 +114,11 @@ class Parent(models.Model):
         ]
 
     def __str__(self):
-        return f"{self.first_name} {self.last_name} ({self.user.email})"
+        name = self.full_name.strip()
+        if name:
+            return f"{name} ({self.user.email})"
+        return f"({self.user.email})"
+
 
     @property
     def full_name(self):
