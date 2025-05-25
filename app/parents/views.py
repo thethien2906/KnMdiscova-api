@@ -39,6 +39,8 @@ class ParentProfileViewSet(GenericViewSet):
             return ParentDetailSerializer
         elif self.action in ['communication_preferences', 'update_communication_preferences']:
             return CommunicationPreferencesSerializer
+        elif self.action == 'reset_communication_preferences':
+            return None
         return ParentSerializer
 
     def get_permissions(self):
