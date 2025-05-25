@@ -26,6 +26,8 @@ urlpatterns = [
 
     # users
     path('api/', include('users.urls')),
+    # parents
+    path('api/parents/', include('parents.urls')),
 ]
 
 
