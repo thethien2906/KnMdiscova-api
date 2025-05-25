@@ -1,4 +1,4 @@
-import uuid
+# parents/models.py
 from django.db import models
 from django.utils.translation import gettext_lazy as _
 from django.core.validators import RegexValidator
@@ -32,14 +32,16 @@ class Parent(models.Model):
     )
 
     # Contact Information
+    # In parents/models.py, update the phone_number field:
+
     phone_number = models.CharField(
         _('phone number'),
         max_length=20,
         blank=True,
         validators=[
             RegexValidator(
-                regex=r'^\+?1?\d{9,15}$',
-                message=_("Phone number must be entered in the format: '+999999999'. Up to 15 digits allowed.")
+                regex=r'^[\+]?[\d\s\-\(\)\.]{10,20}$',
+                message=_("Please enter a valid phone number (10-20 characters, may include +, spaces, hyphens, parentheses, or dots)")
             )
         ],
         help_text=_("Contact phone number")
@@ -89,6 +91,7 @@ class Parent(models.Model):
         _('communication preferences'),
         default=dict,
         blank=True,
+        null=False,  # Explicitly set to ensure it's never null
         help_text=_("Notification and communication preferences")
     )
 
@@ -146,7 +149,8 @@ class Parent(models.Model):
 
     def set_communication_preference(self, preference_key, value):
         """Set a specific communication preference"""
-        if not isinstance(self.communication_preferences, dict):
+        # Ensure we always have a dict, never None
+        if not isinstance(self.communication_preferences, dict) or self.communication_preferences is None:
             self.communication_preferences = {}
         self.communication_preferences[preference_key] = value
         self.save(update_fields=['communication_preferences', 'updated_at'])
