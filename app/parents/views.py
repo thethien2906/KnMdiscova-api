@@ -206,103 +206,66 @@ class ParentProfileViewSet(GenericViewSet):
         description="Get current communication preferences",
         tags=['Parent Profile']
     )
-    @action(detail=False, methods=['get'], url_path='communication-preferences')
+    @action(detail=False, methods=['get', 'patch'], url_path='communication-preferences')
     def communication_preferences(self, request):
         """
-        Get communication preferences
-        GET /api/parents/communication-preferences/
+        Get or update communication preferences
+        GET /api/parents/profile/communication-preferences/
+        PATCH /api/parents/profile/communication-preferences/
         """
         try:
             parent = self.get_current_parent()
-            preferences = parent.communication_preferences or Parent.get_default_communication_preferences()
 
-            serializer = self.get_serializer(data=preferences)
-            serializer.is_valid()  # This will populate initial data
+            if request.method == 'GET':
+                # Get preferences - ensure we always return a complete preferences dict
+                preferences = parent.communication_preferences
+                if not preferences:
+                    preferences = Parent.get_default_communication_preferences()
 
-            return Response(preferences, status=status.HTTP_200_OK)
+                return Response(preferences, status=status.HTTP_200_OK)
+
+            elif request.method == 'PATCH':
+                # Update preferences
+                serializer = CommunicationPreferencesSerializer(data=request.data, partial=True)
+
+                if serializer.is_valid():
+                    try:
+                        # Update preferences using service
+                        ParentService._update_communication_preferences(parent, serializer.validated_data)
+
+                        # Return updated preferences
+                        updated_preferences = parent.communication_preferences
+
+                        logger.info(f"Communication preferences updated by: {request.user.email}")
+                        return Response({
+                            'message': _('Communication preferences updated successfully'),
+                            'preferences': updated_preferences
+                        }, status=status.HTTP_200_OK)
+
+                    except ParentProfileError as e:
+                        return Response({
+                            'error': str(e)
+                        }, status=status.HTTP_400_BAD_REQUEST)
+
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
         except ParentProfileError as e:
             return Response({
                 'error': str(e)
             }, status=status.HTTP_404_NOT_FOUND)
         except Exception as e:
-            logger.error(f"Error retrieving communication preferences for {request.user.email}: {str(e)}")
+            logger.error(f"Error with communication preferences for {request.user.email}: {str(e)}")
             return Response({
-                'error': _('Failed to retrieve communication preferences')
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
-    @extend_schema(
-        request=CommunicationPreferencesSerializer,
-        responses={
-            200: {
-                'description': 'Preferences updated successfully',
-                'example': {
-                    'message': 'Communication preferences updated successfully',
-                    'preferences': {
-                        'email_notifications': True,
-                        'sms_notifications': False,
-                        'appointment_reminders': True
-                    }
-                }
-            },
-            400: {'description': 'Invalid preferences data'}
-        },
-        description="Update communication preferences",
-        tags=['Parent Profile']
-    )
-    @action(detail=False, methods=['patch'], url_path='communication-preferences')
-    def update_communication_preferences(self, request):
-        """
-        Update communication preferences
-        PATCH /api/parents/communication-preferences/
-        """
-        try:
-            parent = self.get_current_parent()
-
-            serializer = self.get_serializer(data=request.data, partial=True)
-
-            if serializer.is_valid():
-                try:
-                    # Update preferences using service
-                    ParentService._update_communication_preferences(parent, serializer.validated_data)
-
-                    # Return updated preferences
-                    updated_preferences = parent.communication_preferences
-
-                    logger.info(f"Communication preferences updated by: {request.user.email}")
-                    return Response({
-                        'message': _('Communication preferences updated successfully'),
-                        'preferences': updated_preferences
-                    }, status=status.HTTP_200_OK)
-
-                except ParentProfileError as e:
-                    return Response({
-                        'error': str(e)
-                    }, status=status.HTTP_400_BAD_REQUEST)
-
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
-
-        except ParentProfileError as e:
-            return Response({
-                'error': str(e)
-            }, status=status.HTTP_404_NOT_FOUND)
-        except Exception as e:
-            logger.error(f"Error updating communication preferences for {request.user.email}: {str(e)}")
-            return Response({
-                'error': _('Failed to update communication preferences')
+                'error': _('Failed to process communication preferences')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
     @extend_schema(
         responses={
             200: {
-                'description': 'Preferences reset successfully',
+                'description': 'Communication preferences reset to defaults',
                 'example': {
                     'message': 'Communication preferences reset to defaults',
-                    'preferences': {
-                        'email_notifications': True,
-                        'sms_notifications': False,
-                        'appointment_reminders': True
-                    }
+                    'preferences': {'email_notifications': True, 'sms_notifications': False}
                 }
             }
         },
