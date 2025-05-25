@@ -53,7 +53,9 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'drf_spectacular',
+    'django_extensions',
     'users',
+    'parents',
 
 ]
 
@@ -183,7 +185,7 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
 
 # Frontend URL for email links
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8080')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
 
 # In settings.py
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
