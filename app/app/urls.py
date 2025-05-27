@@ -28,6 +28,8 @@ urlpatterns = [
     path('api/', include('users.urls')),
     # parents
     path('api/parents/', include('parents.urls')),
+    # children
+    path('api/children/', include('children.urls')),
 ]
 
 
