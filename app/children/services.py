@@ -345,16 +345,35 @@ class ChildService:
 
         return summary
 
+
     @staticmethod
     def search_children(search_params: Dict[str, Any], user: User) -> List[Child]:
         """
-        Search children with filters
-        Access control handled by permissions at the view level
+        Search children with filters and proper access control
         """
         queryset = Child.objects.select_related('parent__user')
 
-        # The view layer will handle access control filtering
-        # This service method focuses on search logic only
+        # Apply access control filtering based on user type
+        if user.user_type == 'Parent':
+            # Parents can only see their own children
+            try:
+                parent = Parent.objects.get(user=user)
+                queryset = queryset.filter(parent=parent)
+            except Parent.DoesNotExist:
+                # If parent profile doesn't exist, return empty queryset
+                logger.warning(f"Parent profile not found for user {user.email}")
+                return []
+        elif user.user_type == 'Psychologist':
+            # Psychologists can see all children (or implement specific logic)
+            # TODO: Implement logic to filter children psychologist has worked with
+            pass  # No additional filtering needed for now
+        elif user.is_superuser or user.user_type == 'Admin':
+            # Admins can see all children
+            pass  # No additional filtering needed
+        else:
+            # Unknown user type, return empty results for security
+            logger.warning(f"Unknown user type {user.user_type} attempting child search")
+            return []
 
         # Apply search filters
         if search_params.get('first_name'):
@@ -367,7 +386,9 @@ class ChildService:
             queryset = queryset.filter(parent__user__email__icontains=search_params['parent_email'])
 
         if search_params.get('gender'):
-            queryset = queryset.filter(gender__icontains=search_params['gender'])
+            # Use exact match for gender instead of icontains to avoid partial matches
+            # icontains would match "Male" in "Female", so we use exact matching
+            queryset = queryset.filter(gender__iexact=search_params['gender'])
 
         if search_params.get('school_grade_level'):
             queryset = queryset.filter(school_grade_level__icontains=search_params['school_grade_level'])
@@ -381,17 +402,14 @@ class ChildService:
             else:
                 queryset = queryset.filter(has_seen_psychologist=False, has_received_therapy=False)
 
-        # Age filtering (calculated on database side would be more efficient)
+        # Age filtering
         age_min = search_params.get('age_min')
         age_max = search_params.get('age_max')
         if age_min or age_max:
-            # Calculate date ranges for age filtering
             today = date.today()
-
             if age_max:
                 min_birth_date = date(today.year - age_max - 1, today.month, today.day)
                 queryset = queryset.filter(date_of_birth__gte=min_birth_date)
-
             if age_min:
                 max_birth_date = date(today.year - age_min, today.month, today.day)
                 queryset = queryset.filter(date_of_birth__lte=max_birth_date)
@@ -403,7 +421,14 @@ class ChildService:
         if search_params.get('created_before'):
             queryset = queryset.filter(created_at__lte=search_params['created_before'])
 
-        return list(queryset.order_by('first_name', 'last_name'))
+        # Debug logging to help identify the issue
+        logger.debug(f"User {user.email} search query: {queryset.query}")
+        logger.debug(f"Search params: {search_params}")
+
+        result = list(queryset.order_by('first_name', 'last_name'))
+        logger.debug(f"Search results count: {len(result)} for user {user.email}")
+
+        return result
 
     @staticmethod
     def validate_child_data(child_data: Dict[str, Any], is_update: bool = False) -> Dict[str, Any]:

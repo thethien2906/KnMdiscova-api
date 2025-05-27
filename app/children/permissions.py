@@ -44,7 +44,7 @@ class IsChildOwnerOrReadOnly(permissions.BasePermission):
             return False
 
         # Admins have full access
-        if request.user.is_admin or request.user.is_staff:
+        if request.user.is_admin or request.user.is_staff or request.user.is_superuser:
             return True
 
         # Parents can access their own children
