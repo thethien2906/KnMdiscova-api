@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'users',
     'parents',
     'children',
+    'factories', # Factory-boy for testing
 
 ]
 
