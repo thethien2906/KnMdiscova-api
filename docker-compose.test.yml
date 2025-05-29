@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+      args:
+        - DEV=true
+    environment:
+      - DJANGO_SETTINGS_MODULE=app.settings.development
+    depends_on:
+      - db
+    volumes:
+      - ./app:/app
+
+  db:
+    image: postgres:16-alpine
+    environment:
+      - POSTGRES_USER=testuser
+      - POSTGRES_PASSWORD=testpass
+      - POSTGRES_DB=testdb
+    tmpfs:
+      - /var/lib/postgresql/data  # Use tmpfs for faster tests

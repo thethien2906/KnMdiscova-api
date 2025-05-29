@@ -6,3 +6,6 @@ python-dotenv==1.0.0
 django-environ==0.11.2
 django-extensions==4.0
 python-dateutil==2.9.0
+gunicorn==21.2.0
+whitenoise==6.6.0
+django-cors-headers==4.3.1
