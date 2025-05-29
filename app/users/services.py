@@ -382,3 +382,11 @@ class UserService:
             logger.info(f"Updated profile for user {user.email}: {updated_fields}")
 
         return user
+
+    @staticmethod
+    def create_user(email: str, password: str, **extra_fields) -> User:
+        """
+        Create a new user with the given email and password.
+        """
+        user = User.objects.create_user(email=email, password=password, **extra_fields)
+        return user
