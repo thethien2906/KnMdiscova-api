@@ -14,19 +14,19 @@ services:
              python manage.py runserver 0.0.0.0:8000"
     env_file:
       - .env.dev
-    depends_on:
-      - db
+#     depends_on:
+#       - db
 
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=${DB_USER:-devuser}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
-      - POSTGRES_DB=${DB_NAME:-devdb}
-    volumes:
-      - dev-db-data:/var/lib/postgresql/data
-    ports:
-      - "5432:5432"
+#   db:
+#     image: postgres:16-alpine
+#     environment:
+#       - POSTGRES_USER=${DB_USER:-devuser}
+#       - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}
+#       - POSTGRES_DB=${DB_NAME:-devdb}
+#     volumes:
+#       - dev-db-data:/var/lib/postgresql/data
+#     ports:
+#       - "5432:5432"
 
-volumes:
-  dev-db-data:
+# volumes:
+#   dev-db-data:

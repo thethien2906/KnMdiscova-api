@@ -1,3 +1,4 @@
+# app/settings/development.py
 from .base import *
 
 # Database for development

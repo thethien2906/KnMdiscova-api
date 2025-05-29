@@ -1,3 +1,4 @@
+# app/settings/production.py
 from .base import *
 
 # Database for production (Aiven)
@@ -16,7 +17,7 @@ DATABASES = {
 }
 
 # Security settings for production
-SECURE_SSL_REDIRECT = True
+SECURE_SSL_REDIRECT = os.environ.get('SECURE_SSL_REDIRECT', 'True') == 'True'
 SESSION_COOKIE_SECURE = True
 CSRF_COOKIE_SECURE = True
 SECURE_BROWSER_XSS_FILTER = True
@@ -31,8 +32,8 @@ CORS_ALLOWED_ORIGINS = [
 
 # Static files
 STATIC_URL = '/static/'
-STATIC_ROOT = '/var/www/static/'
+STATIC_ROOT = '/app/staticfiles/'
 
 # Media files
 MEDIA_URL = '/media/'
-MEDIA_ROOT = '/var/www/media/'
+MEDIA_ROOT = '/app/media/'
