@@ -446,7 +446,6 @@ class Psychologist(models.Model):
 class PsychologistAvailability(models.Model):
     """
     Psychologist availability blocks - creates time blocks that will be broken down into 1-hour appointable slots
-    Note: The is_booked flag is kept for legacy purposes but should NOT be used for booking logic
     """
 
     # Primary key
@@ -495,13 +494,6 @@ class PsychologistAvailability(models.Model):
         null=True,
         blank=True,
         help_text=_("For non-recurring availability overrides on specific dates")
-    )
-
-    # Legacy field - DO NOT USE for booking logic
-    is_booked = models.BooleanField(
-        _('is booked'),
-        default=False,
-        help_text=_("Legacy field - DO NOT USE for booking logic. Use AppointmentSlot model instead.")
     )
 
     # Timestamps

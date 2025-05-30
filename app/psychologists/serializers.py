@@ -636,9 +636,6 @@ class PsychologistAvailabilitySerializer(serializers.ModelSerializer):
             'duration_hours',
             'max_appointable_slots',
 
-            # Legacy field (don't use for booking logic)
-            'is_booked',
-
             # Timestamps
             'created_at',
             'updated_at',
