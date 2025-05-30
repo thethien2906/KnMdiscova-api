@@ -1,772 +1,779 @@
 # psychologists/tests/test_serializers.py
-from decimal import Decimal
-from datetime import date, time, datetime, timedelta
 from django.test import TestCase
-from django.contrib.auth import get_user_model
-from django.utils import timezone
 from django.core.exceptions import ValidationError
+from django.utils import timezone
+from datetime import date, time, timedelta
+from decimal import Decimal
 from rest_framework.exceptions import ValidationError as DRFValidationError
 
-from ..models import Psychologist, PsychologistAvailability
-from ..serializers import (
-    PsychologistRegistrationSerializer,
-    PsychologistProfileSerializer,
-    PsychologistPublicProfileSerializer,
-    AvailabilityCreateUpdateSerializer,
-    AvailabilityListSerializer,
-    PsychologistSearchSerializer,
+from users.models import User
+from psychologists.models import Psychologist, PsychologistAvailability
+from psychologists.serializers import (
+    PsychologistSerializer,
+    PsychologistProfileUpdateSerializer,
+    PsychologistMarketplaceSerializer,
+    PsychologistDetailSerializer,
     PsychologistVerificationSerializer,
-    AvailabilityBulkSerializer,
+    PsychologistSearchSerializer,
+    PsychologistAvailabilitySerializer,
+    PsychologistSummarySerializer,
+    EducationEntrySerializer,
+    CertificationEntrySerializer,
+    PsychologistEducationSerializer,
+    PsychologistCertificationSerializer
 )
 
-User = get_user_model()
 
-
-class PsychologistRegistrationSerializerTest(TestCase):
-    """Test psychologist registration serializer"""
+class PsychologistSerializerTestCase(TestCase):
+    """Test cases for PsychologistSerializer"""
 
     def setUp(self):
-        self.valid_data = {
-            'email': 'test@example.com',
-            'password': 'testpass123',
-            'password_confirm': 'testpass123',
-            'first_name': 'John',
-            'last_name': 'Doe',
-            'license_number': 'PSY-123456',
-            'license_issuing_authority': 'State Board',
-            'license_expiry_date': date.today() + timedelta(days=365),
-            'years_of_experience': 5,
-            'biography': 'Experienced psychologist',
-            'education': [
-                {'degree': 'PhD Psychology', 'institution': 'University X', 'year': '2015'}
-            ],
-            'certifications': [
-                {'name': 'CBT Certification', 'institution': 'Institute Y', 'year': '2016'}
-            ],
-            'hourly_rate': Decimal('100.00'),
-            'website_url': 'https://example.com',
-            'linkedin_url': 'https://linkedin.com/in/johndoe'
-        }
-
-    def test_valid_registration_data(self):
-        """Test registration with valid data"""
-        serializer = PsychologistRegistrationSerializer(data=self.valid_data)
-        self.assertTrue(serializer.is_valid())
-
-    def test_password_confirmation_mismatch(self):
-        """Test password confirmation validation"""
-        data = self.valid_data.copy()
-        data['password_confirm'] = 'different_password'
-
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('password_confirm', serializer.errors)
-
-    def test_duplicate_email_validation(self):
-        """Test email uniqueness validation"""
-        # Create a user first
-        User.objects.create_user(
-            email='test@example.com',
-            password='password123',
-            user_type='Client'
+        """Set up test data"""
+        self.user = User.objects.create_user(
+            email='psychologist@test.com',
+            password='testpass123',
+            user_type='Psychologist',
+            is_verified=True  # Make user verified for marketplace visibility
+        )
+        self.psychologist = Psychologist.objects.create(
+            user=self.user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            biography='Experienced psychologist',
+            education=[{
+                'degree': 'PhD Psychology',
+                'institution': 'University Test',
+                'year': '2015'
+            }],
+            certifications=[{
+                'name': 'Child Psychology Certification',
+                'institution': 'Professional Board',
+                'year': '2016'
+            }],
+            verification_status='Approved',
+            offers_initial_consultation=True,
+            offers_online_sessions=True,
+            office_address='123 Test St, Test City',  # Required for initial consultations
+            initial_consultation_rate=Decimal('300.00')
         )
 
-        serializer = PsychologistRegistrationSerializer(data=self.valid_data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('email', serializer.errors)
 
-    def test_duplicate_license_number_validation(self):
+    def test_serializer_fields(self):
+        """Test that serializer includes all expected fields"""
+        serializer = PsychologistSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        # Check basic fields
+        self.assertEqual(data['first_name'], 'John')
+        self.assertEqual(data['last_name'], 'Doe')
+        self.assertEqual(data['license_number'], 'PSY12345')
+        self.assertEqual(data['email'], 'psychologist@test.com')
+        self.assertEqual(data['years_of_experience'], 5)
+
+        # Check computed fields
+        self.assertEqual(data['full_name'], 'Dr. John Doe')
+        self.assertEqual(data['is_verified'], True)
+        self.assertTrue(data['is_marketplace_visible'])
+        self.assertTrue(data['license_is_valid'])
+        self.assertIn('Online Sessions', data['services_offered'])
+
+    def test_education_validation_valid_structure(self):
+        """Test valid education structure passes validation"""
+        valid_education = [
+            {
+                'degree': 'PhD Psychology',
+                'institution': 'Test University',
+                'year': '2015'
+            }
+        ]
+
+        serializer = PsychologistSerializer()
+        result = serializer.validate_education(valid_education)
+        self.assertEqual(result, valid_education)
+
+    def test_education_validation_invalid_structure(self):
+        """Test invalid education structure fails validation"""
+        # Test non-list input
+        with self.assertRaises(DRFValidationError):
+            serializer = PsychologistSerializer()
+            serializer.validate_education("not a list")
+
+        # Test missing required fields
+        invalid_education = [{'degree': 'PhD'}]  # Missing institution and year
+        with self.assertRaises(DRFValidationError):
+            serializer = PsychologistSerializer()
+            serializer.validate_education(invalid_education)
+
+        # Test invalid year
+        invalid_year_education = [{
+            'degree': 'PhD',
+            'institution': 'Test',
+            'year': '2050'  # Future year
+        }]
+        with self.assertRaises(DRFValidationError):
+            serializer = PsychologistSerializer()
+            serializer.validate_education(invalid_year_education)
+
+    def test_license_expiry_validation(self):
+        """Test license expiry date validation"""
+        serializer = PsychologistSerializer()
+
+        # Valid future date
+        future_date = date.today() + timedelta(days=30)
+        result = serializer.validate_license_expiry_date(future_date)
+        self.assertEqual(result, future_date)
+
+        # Invalid past date
+        past_date = date.today() - timedelta(days=30)
+        with self.assertRaises(DRFValidationError):
+            serializer.validate_license_expiry_date(past_date)
+
+    def test_cross_field_validation(self):
+        """Test cross-field validation rules"""
+        # Test office address required for initial consultations - use complete valid data
+        invalid_data = {
+            'first_name': 'Test',
+            'last_name': 'Doctor',
+            'license_number': 'PSY999',
+            'license_issuing_authority': 'Test Board',
+            'license_expiry_date': (date.today() + timedelta(days=365)).isoformat(),
+            'years_of_experience': 5,
+            'offers_initial_consultation': True,
+            'offers_online_sessions': False,
+            'office_address': ''  # Empty office address
+        }
+
+        serializer = PsychologistSerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('office_address', serializer.errors)
+
+        # Test must offer at least one service
+        invalid_service_data = {
+            'first_name': 'Test',
+            'last_name': 'Doctor',
+            'license_number': 'PSY998',
+            'license_issuing_authority': 'Test Board',
+            'license_expiry_date': (date.today() + timedelta(days=365)).isoformat(),
+            'years_of_experience': 5,
+            'offers_initial_consultation': False,
+            'offers_online_sessions': False
+        }
+
+        serializer = PsychologistSerializer(data=invalid_service_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('offers_online_sessions', serializer.errors)
+
+
+class PsychologistProfileUpdateSerializerTestCase(TestCase):
+    """Test cases for PsychologistProfileUpdateSerializer"""
+
+    def setUp(self):
+        """Set up test data"""
+        self.user = User.objects.create_user(
+            email='psychologist@test.com',
+            password='testpass123',
+            user_type='Psychologist'
+        )
+        self.psychologist = Psychologist.objects.create(
+            user=self.user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            offers_initial_consultation=True,
+            offers_online_sessions=True,
+            office_address='123 Test St'  # Required for initial consultations
+        )
+
+    def test_valid_profile_update(self):
+        """Test valid profile update data"""
+        update_data = {
+            'first_name': 'Jane',
+            'biography': 'Updated biography',
+            'years_of_experience': 7,
+            'hourly_rate': '175.00'
+        }
+
+        serializer = PsychologistProfileUpdateSerializer(
+            instance=self.psychologist,
+            data=update_data,
+            partial=True
+        )
+
+        self.assertTrue(serializer.is_valid())
+        updated_psychologist = serializer.save()
+        self.assertEqual(updated_psychologist.first_name, 'Jane')
+        self.assertEqual(updated_psychologist.biography, 'Updated biography')
+
+    def test_license_number_uniqueness(self):
         """Test license number uniqueness validation"""
-        # Create a user and psychologist first
-        user = User.objects.create_user(
-            email='existing@example.com',
-            password='password123',
+        # Create another psychologist
+        other_user = User.objects.create_user(
+            email='other@test.com',
+            password='testpass123',
             user_type='Psychologist'
         )
         Psychologist.objects.create(
-            user=user,
-            first_name='Jane',
-            last_name='Smith',
-            license_number='PSY-123456',
-            years_of_experience=3
-        )
-
-        serializer = PsychologistRegistrationSerializer(data=self.valid_data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('license_number', serializer.errors)
-
-    def test_invalid_license_number_format(self):
-        """Test license number format validation"""
-        data = self.valid_data.copy()
-        data['license_number'] = 'invalid_format!'
-
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('license_number', serializer.errors)
-
-    def test_password_minimum_length(self):
-        """Test password minimum length validation"""
-        data = self.valid_data.copy()
-        data['password'] = 'short'
-        data['password_confirm'] = 'short'
-
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('password', serializer.errors)
-
-    def test_years_of_experience_validation(self):
-        """Test years of experience range validation"""
-        # Test negative value
-        data = self.valid_data.copy()
-        data['years_of_experience'] = -1
-
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('years_of_experience', serializer.errors)
-
-        # Test too high value
-        data['years_of_experience'] = 100
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('years_of_experience', serializer.errors)
-
-    def test_education_structure_validation(self):
-        """Test education structure validation"""
-        data = self.valid_data.copy()
-
-        # Test missing required keys
-        data['education'] = [{'degree': 'PhD', 'institution': 'University'}]  # Missing year
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('education', serializer.errors)
-
-        # Test invalid year
-        data['education'] = [{'degree': 'PhD', 'institution': 'University', 'year': '1800'}]
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('education', serializer.errors)
-
-    def test_certifications_structure_validation(self):
-        """Test certifications structure validation"""
-        data = self.valid_data.copy()
-
-        # Test missing required keys
-        data['certifications'] = [{'name': 'Cert', 'institution': 'Institute'}]  # Missing year
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('certifications', serializer.errors)
-
-    def test_license_expiry_date_validation(self):
-        """Test license expiry date validation"""
-        data = self.valid_data.copy()
-        data['license_expiry_date'] = date.today() - timedelta(days=1)  # Past date
-
-        serializer = PsychologistRegistrationSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('license_expiry_date', serializer.errors)
-
-    def test_required_fields(self):
-        """Test required field validation"""
-        required_fields = ['email', 'password', 'first_name', 'last_name', 'license_number', 'years_of_experience']
-
-        for field in required_fields:
-            data = self.valid_data.copy()
-            del data[field]
-
-            serializer = PsychologistRegistrationSerializer(data=data)
-            self.assertFalse(serializer.is_valid())
-            self.assertIn(field, serializer.errors)
-
-
-class PsychologistProfileSerializerTest(TestCase):
-    """Test psychologist profile serializer"""
-
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
-            user_type='Psychologist',
-            is_verified=True
-        )
-        self.psychologist = Psychologist.objects.create(
-            user=self.user,
-            first_name='John',
-            last_name='Doe',
-            license_number='PSY-123456',
-            years_of_experience=5,
-            verification_status='Approved'
-        )
-
-    def test_profile_serialization(self):
-        """Test profile data serialization"""
-        serializer = PsychologistProfileSerializer(instance=self.psychologist)
-        data = serializer.data
-
-        self.assertEqual(data['email'], self.user.email)
-        self.assertEqual(data['first_name'], 'John')
-        self.assertEqual(data['last_name'], 'Doe')
-        self.assertEqual(data['full_name'], 'John Doe')
-        self.assertEqual(data['display_name'], 'Dr. John Doe')
-        self.assertTrue(data['can_accept_appointments'])
-
-    def test_profile_update_validation(self):
-        """Test profile update validation"""
-        data = {
-            'first_name': 'Jane',
-            'last_name': 'Smith',
-            'years_of_experience': 10,
-            'biography': 'Updated biography'
-        }
-
-        serializer = PsychologistProfileSerializer(instance=self.psychologist, data=data, partial=True)
-        self.assertTrue(serializer.is_valid())
-
-    def test_license_number_uniqueness_on_update(self):
-        """Test license number uniqueness validation on update"""
-        # Create another psychologist
-        other_user = User.objects.create_user(
-            email='other@example.com',
-            password='password123',
-            user_type='Psychologist'
-        )
-        other_psychologist = Psychologist.objects.create(
             user=other_user,
             first_name='Other',
-            last_name='Doctor',
-            license_number='PSY-789012',
-            years_of_experience=3
+            last_name='Doc',
+            license_number='PSY67890',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=3,
+            offers_initial_consultation=False,  # Don't require office address
+            offers_online_sessions=True
         )
 
-        # Try to update current psychologist with other's license number
-        data = {'license_number': 'PSY-789012'}
-        serializer = PsychologistProfileSerializer(instance=self.psychologist, data=data, partial=True)
+        # Try to update with existing license number
+        update_data = {'license_number': 'PSY67890'}
+        serializer = PsychologistProfileUpdateSerializer(
+            instance=self.psychologist,
+            data=update_data,
+            partial=True
+        )
+
         self.assertFalse(serializer.is_valid())
         self.assertIn('license_number', serializer.errors)
 
-    def test_education_validation(self):
-        """Test education validation on update"""
-        # Test invalid structure
-        data = {'education': 'not a list'}
-        serializer = PsychologistProfileSerializer(instance=self.psychologist, data=data, partial=True)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('education', serializer.errors)
+    def test_name_validation(self):
+        """Test name field validation"""
+        # Test empty name
+        invalid_data = {'first_name': '   '}
+        serializer = PsychologistProfileUpdateSerializer(
+            instance=self.psychologist,
+            data=invalid_data,
+            partial=True
+        )
 
-        # Test invalid object structure
-        data = {'education': [{'degree': 'PhD'}]}  # Missing required keys
-        serializer = PsychologistProfileSerializer(instance=self.psychologist, data=data, partial=True)
         self.assertFalse(serializer.is_valid())
-        self.assertIn('education', serializer.errors)
+        self.assertIn('first_name', serializer.errors)
 
-    def test_read_only_fields(self):
-        """Test that read-only fields cannot be updated"""
-        data = {
-            'email': 'newemail@example.com',
-            'user_type': 'Client',
-            'verification_status': 'Rejected',
-            'can_accept_appointments': False
+    def test_rate_validation(self):
+        """Test rate validation"""
+        # Test negative rate
+        invalid_data = {'hourly_rate': '-50.00'}
+        serializer = PsychologistProfileUpdateSerializer(
+            instance=self.psychologist,
+            data=invalid_data,
+            partial=True
+        )
+
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('hourly_rate', serializer.errors)
+
+
+class PsychologistMarketplaceSerializerTestCase(TestCase):
+    """Test cases for PsychologistMarketplaceSerializer"""
+
+    def setUp(self):
+        """Set up test data"""
+        self.user = User.objects.create_user(
+            email='psychologist@test.com',
+            password='testpass123',
+            user_type='Psychologist',
+            is_verified=True  # User must be verified
+        )
+        self.psychologist = Psychologist.objects.create(
+            user=self.user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            verification_status='Approved',  # Must be approved
+            offers_online_sessions=True,
+            offers_initial_consultation=False,  # Don't require office address
+            biography='Test biography'
+        )
+
+    def test_marketplace_visible_psychologist(self):
+        """Test serialization for marketplace-visible psychologist"""
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        # Should include public information
+        self.assertEqual(data['full_name'], 'Dr. John Doe')
+        self.assertEqual(data['years_of_experience'], 5)
+        self.assertEqual(data['biography'], 'Test biography')
+        self.assertIn('Online Sessions', data['services_offered'])
+
+        # Should not include sensitive information
+        self.assertNotIn('license_number', data)
+        self.assertNotIn('admin_notes', data)
+
+    def test_marketplace_invisible_psychologist(self):
+        """Test serialization for non-marketplace psychologist"""
+        # Make psychologist not marketplace visible
+        self.psychologist.verification_status = 'Pending'
+        self.psychologist.save()
+
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        # Should return empty dict for non-visible psychologists
+        self.assertEqual(data, {})
+
+    def test_profile_completeness_calculation(self):
+        """Test profile completeness method"""
+
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        self.assertIn('profile_completeness', data)
+        self.assertIsInstance(data['profile_completeness'], float)
+
+
+class PsychologistSearchSerializerTestCase(TestCase):
+    """Test cases for PsychologistSearchSerializer"""
+
+    def test_valid_search_parameters(self):
+        """Test valid search parameters"""
+        search_data = {
+            'name': 'John Doe',
+            'min_years_experience': 5,
+            'max_years_experience': 10,
+            'offers_online_sessions': True,
+            'verification_status': 'Approved'
         }
 
-        serializer = PsychologistProfileSerializer(instance=self.psychologist, data=data, partial=True)
+        serializer = PsychologistSearchSerializer(data=search_data)
         self.assertTrue(serializer.is_valid())
 
-        # These fields should not change
-        updated_instance = serializer.save()
-        self.assertEqual(updated_instance.user.email, 'test@example.com')
-        self.assertEqual(updated_instance.verification_status, 'Approved')
+    def test_experience_range_validation(self):
+        """Test experience range validation"""
+        invalid_data = {
+            'min_years_experience': 10,
+            'max_years_experience': 5  # min > max
+        }
+
+        serializer = PsychologistSearchSerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('min_years_experience', serializer.errors)
+
+    def test_rate_range_validation(self):
+        """Test rate range validation"""
+        invalid_data = {
+            'min_hourly_rate': '200.00',
+            'max_hourly_rate': '100.00'  # min > max
+        }
+
+        serializer = PsychologistSearchSerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('min_hourly_rate', serializer.errors)
+
+    def test_date_range_validation(self):
+        """Test date range validation"""
+        future_date = timezone.now() + timedelta(days=10)
+        past_date = timezone.now() - timedelta(days=10)
+
+        invalid_data = {
+            'created_after': future_date,
+            'created_before': past_date  # after > before
+        }
+
+        serializer = PsychologistSearchSerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('created_after', serializer.errors)
 
 
-class PsychologistPublicProfileSerializerTest(TestCase):
-    """Test public profile serializer"""
+class PsychologistAvailabilitySerializerTestCase(TestCase):
+    """Test cases for PsychologistAvailabilitySerializer"""
 
     def setUp(self):
+        """Set up test data"""
         self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
+            email='psychologist@test.com',
+            password='testpass123',
             user_type='Psychologist',
-            is_verified=True
+            is_verified=True  # User must be verified for availability
         )
         self.psychologist = Psychologist.objects.create(
             user=self.user,
             first_name='John',
             last_name='Doe',
-            license_number='PSY-123456',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
             years_of_experience=5,
-            education=[
-                {'degree': 'PhD Psychology', 'institution': 'University X', 'year': '2015'}
-            ],
-            certifications=[
-                {'name': 'CBT Certification', 'institution': 'Institute Y', 'year': '2016'}
-            ],
-            verification_status='Approved'
+            verification_status='Approved',
+            offers_online_sessions=True,  # Only offer online sessions
+            offers_initial_consultation=False  # Don't require office address
         )
-
-    def test_public_profile_serialization(self):
-        """Test public profile data serialization"""
-        serializer = PsychologistPublicProfileSerializer(instance=self.psychologist)
-        data = serializer.data
-
-        # Should include public fields
-        self.assertIn('display_name', data)
-        self.assertIn('years_of_experience', data)
-        self.assertIn('biography', data)
-        self.assertIn('public_education', data)
-        self.assertIn('public_certifications', data)
-
-        # Should not include sensitive fields
-        self.assertNotIn('license_number', data)
-        self.assertNotIn('email', data)
-
-    def test_public_education_formatting(self):
-        """Test education formatting for public view"""
-        serializer = PsychologistPublicProfileSerializer(instance=self.psychologist)
-        data = serializer.data
-
-        self.assertEqual(len(data['public_education']), 1)
-        education = data['public_education'][0]
-        self.assertEqual(education['degree'], 'PhD Psychology')
-        self.assertEqual(education['institution'], 'University X')
-        self.assertEqual(education['year'], '2015')
-
-    def test_public_certifications_formatting(self):
-        """Test certifications formatting for public view"""
-        serializer = PsychologistPublicProfileSerializer(instance=self.psychologist)
-        data = serializer.data
-
-        self.assertEqual(len(data['public_certifications']), 1)
-        certification = data['public_certifications'][0]
-        self.assertEqual(certification['name'], 'CBT Certification')
-        self.assertEqual(certification['institution'], 'Institute Y')
-        self.assertEqual(certification['year'], '2016')
+        self.psychologist.refresh_from_db()
 
 
-class AvailabilityCreateUpdateSerializerTest(TestCase):
-    """Test availability create/update serializer"""
-
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
-            user_type='Psychologist'
-        )
-        self.psychologist = Psychologist.objects.create(
-            user=self.user,
-            first_name='John',
-            last_name='Doe',
-            license_number='PSY-123456',
-            years_of_experience=5
-        )
 
     def test_valid_recurring_availability(self):
-        """Test valid recurring availability creation"""
-        data = {
+        """Test valid recurring availability data"""
+        availability_data = {
+            'psychologist': self.psychologist.pk,
             'day_of_week': 1,  # Monday
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
-            'is_recurring': True
+            'start_time': '09:00:00',
+            'end_time': '17:00:00',
+            'is_recurring': True,
+            'specific_date': None  # Not a specific date
         }
-
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer = PsychologistAvailabilitySerializer(data=availability_data)
         self.assertTrue(serializer.is_valid())
+
+        availability = serializer.save()
+        self.assertEqual(availability.day_of_week, 1)
+        self.assertEqual(availability.start_time, time(9, 0))
+        self.assertTrue(availability.is_recurring)
 
     def test_valid_specific_date_availability(self):
-        """Test valid specific date availability creation"""
+        """Test valid specific date availability"""
         future_date = date.today() + timedelta(days=7)
-        data = {
+        availability_data = {
+            'psychologist': self.psychologist.pk,
             'day_of_week': 1,
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
+            'start_time': '10:00:00',
+            'end_time': '14:00:00',
             'is_recurring': False,
-            'specific_date': future_date
+            'specific_date': future_date.isoformat()
         }
 
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer = PsychologistAvailabilitySerializer(data=availability_data)
         self.assertTrue(serializer.is_valid())
 
-    def test_end_time_before_start_time_validation(self):
-        """Test time sequence validation"""
-        data = {
+    def test_time_validation(self):
+        """Test time validation rules"""
+        # Test end time before start time
+        invalid_data = {
+            'psychologist': self.psychologist.pk,
             'day_of_week': 1,
-            'start_time': time(17, 0),
-            'end_time': time(9, 0),  # End before start
-            'is_recurring': True
+            'start_time': '17:00:00',
+            'end_time': '09:00:00',  # Before start time
+            'is_recurring': True,
+            'specific_date': None
         }
 
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer = PsychologistAvailabilitySerializer(data=invalid_data)
         self.assertFalse(serializer.is_valid())
         self.assertIn('end_time', serializer.errors)
 
-    def test_non_recurring_without_specific_date(self):
-        """Test non-recurring availability without specific date"""
-        data = {
+    def test_minimum_duration_validation(self):
+        """Test minimum duration validation"""
+        # Test duration less than 1 hour
+        invalid_data = {
+            'psychologist': self.psychologist.pk,
             'day_of_week': 1,
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
-            'is_recurring': False
-            # Missing specific_date
-        }
-
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('specific_date', serializer.errors)
-
-    def test_recurring_with_specific_date(self):
-        """Test recurring availability with specific date"""
-        data = {
-            'day_of_week': 1,
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
+            'start_time': '09:00:00',
+            'end_time': '09:30:00',  # Only 30 minutes
             'is_recurring': True,
-            'specific_date': date.today() + timedelta(days=7)
+            'specific_date': None  # Not a specific date
         }
 
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer = PsychologistAvailabilitySerializer(data=invalid_data)
         self.assertFalse(serializer.is_valid())
-        self.assertIn('specific_date', serializer.errors)
+        self.assertIn('end_time', serializer.errors)
 
-    def test_specific_date_in_past(self):
-        """Test specific date validation"""
-        past_date = date.today() - timedelta(days=1)
-        data = {
+    def test_recurring_specific_date_validation(self):
+        """Test recurring vs specific date validation"""
+        # Test recurring with specific date (should fail)
+        invalid_data = {
+            'psychologist': self.psychologist.pk,
             'day_of_week': 1,
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
-            'is_recurring': False,
-            'specific_date': past_date
+            'start_time': '09:00:00',
+            'end_time': '17:00:00',
+            'is_recurring': True,
+            'specific_date': date.today().isoformat()
         }
 
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer = PsychologistAvailabilitySerializer(data=invalid_data)
         self.assertFalse(serializer.is_valid())
         self.assertIn('specific_date', serializer.errors)
 
-    def test_day_of_week_validation(self):
-        """Test day of week range validation"""
-        # Test invalid day
-        data = {
-            'day_of_week': 8,  # Invalid day
-            'start_time': time(9, 0),
-            'end_time': time(17, 0),
-            'is_recurring': True
+        # Test non-recurring without specific date (should fail)
+        invalid_data2 = {
+            'psychologist': self.psychologist.pk,
+            'day_of_week': 1,
+            'start_time': '09:00:00',
+            'end_time': '17:00:00',
+            'is_recurring': False
         }
 
-        serializer = AvailabilityCreateUpdateSerializer(data=data)
+        serializer2 = PsychologistAvailabilitySerializer(data=invalid_data2)
+        self.assertFalse(serializer2.is_valid())
+        self.assertIn('specific_date', serializer2.errors)
+
+    def test_past_date_validation(self):
+        """Test validation of past specific dates"""
+        past_date = date.today() - timedelta(days=1)
+        invalid_data = {
+            'psychologist': self.psychologist.pk,
+            'day_of_week': 1,
+            'start_time': '09:00:00',
+            'end_time': '17:00:00',
+            'is_recurring': False,
+            'specific_date': past_date.isoformat()
+        }
+
+        serializer = PsychologistAvailabilitySerializer(data=invalid_data)
         self.assertFalse(serializer.is_valid())
-        self.assertIn('day_of_week', serializer.errors)
+        self.assertIn('specific_date', serializer.errors)
 
-
-class AvailabilityListSerializerTest(TestCase):
-    """Test availability list serializer"""
-
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
-            user_type='Psychologist'
-        )
-        self.psychologist = Psychologist.objects.create(
-            user=self.user,
-            first_name='John',
-            last_name='Doe',
-            license_number='PSY-123456',
-            years_of_experience=5
-        )
-        self.availability = PsychologistAvailability.objects.create(
+    def test_computed_fields(self):
+        """Test computed fields in serializer"""
+        availability = PsychologistAvailability.objects.create(
             psychologist=self.psychologist,
-            day_of_week=1,  # Monday
+            day_of_week=1,
             start_time=time(9, 0),
             end_time=time(17, 0),
             is_recurring=True
         )
 
-    def test_availability_serialization(self):
-        """Test availability data serialization"""
-        serializer = AvailabilityListSerializer(instance=self.availability)
+        serializer = PsychologistAvailabilitySerializer(instance=availability)
         data = serializer.data
 
-        self.assertEqual(data['day_of_week'], 1)
         self.assertEqual(data['day_name'], 'Monday')
-        self.assertEqual(data['formatted_time'], '09:00 - 17:00')
         self.assertEqual(data['duration_hours'], 8.0)
-        self.assertEqual(data['psychologist_name'], 'Dr. John Doe')
+        self.assertEqual(data['max_appointable_slots'], 8)
+        self.assertEqual(data['time_range_display'], '09:00 - 17:00')
 
-    def test_specific_date_availability_serialization(self):
-        """Test specific date availability serialization"""
-        specific_date = date.today() + timedelta(days=7)
-        specific_availability = PsychologistAvailability.objects.create(
-            psychologist=self.psychologist,
-            day_of_week=1,
-            start_time=time(10, 0),
-            end_time=time(12, 0),
-            is_recurring=False,
-            specific_date=specific_date
+
+class EducationCertificationSerializerTestCase(TestCase):
+    """Test cases for education and certification serializers"""
+
+    def test_education_entry_serializer(self):
+        """Test EducationEntrySerializer"""
+        valid_data = {
+            'degree': 'PhD Psychology',
+            'institution': 'Test University',
+            'year': 2015,
+            'field_of_study': 'Clinical Psychology'
+        }
+
+        serializer = EducationEntrySerializer(data=valid_data)
+        self.assertTrue(serializer.is_valid())
+
+        # Test invalid year
+        invalid_data = valid_data.copy()
+        invalid_data['year'] = 2050  # Future year
+
+        serializer = EducationEntrySerializer(data=invalid_data)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('year', serializer.errors)
+
+    def test_certification_entry_serializer(self):
+        """Test CertificationEntrySerializer"""
+        valid_data = {
+            'name': 'Board Certification',
+            'institution': 'Professional Board',
+            'year': 2016,
+            'certification_id': 'CERT123'
+        }
+
+        serializer = CertificationEntrySerializer(data=valid_data)
+        self.assertTrue(serializer.is_valid())
+
+    def test_psychologist_education_serializer(self):
+        """Test PsychologistEducationSerializer"""
+        user = User.objects.create_user(
+            email='test@test.com',
+            password='testpass123',
+            user_type='Psychologist'
+        )
+        psychologist = Psychologist.objects.create(
+            user=user,
+            first_name='Test',
+            last_name='Doc',
+            license_number='PSY123',
+            license_issuing_authority='State',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            offers_online_sessions=True,  # Only offer online sessions
+            offers_initial_consultation=False  # Don't require office address
         )
 
-        serializer = AvailabilityListSerializer(instance=specific_availability)
-        data = serializer.data
-
-        self.assertIsNone(data['day_name'])  # No day name for specific dates
-        self.assertEqual(data['specific_date'], specific_date.isoformat())
-
-
-class PsychologistSearchSerializerTest(TestCase):
-    """Test psychologist search serializer"""
-
-    def test_valid_search_parameters(self):
-        """Test valid search parameters"""
-        data = {
-            'search': 'therapy',
-            'min_experience': 2,
-            'max_experience': 10,
-            'min_rate': Decimal('50.00'),
-            'max_rate': Decimal('200.00'),
-            'verification_status': 'Approved',
-            'available_on': date.today() + timedelta(days=7),
-            'ordering': '-years_of_experience'
+        education_data = {
+            'education': [
+                {
+                    'degree': 'PhD Psychology',
+                    'institution': 'Test University',
+                    'year': 2015
+                }
+            ]
         }
 
-        serializer = PsychologistSearchSerializer(data=data)
+        serializer = PsychologistEducationSerializer(data=education_data)
         self.assertTrue(serializer.is_valid())
 
-    def test_experience_range_validation(self):
-        """Test experience range validation"""
-        data = {
-            'min_experience': 10,
-            'max_experience': 5  # Max less than min
+        updated_psychologist = serializer.update(psychologist, serializer.validated_data)
+        self.assertEqual(len(updated_psychologist.education), 1)
+        self.assertEqual(updated_psychologist.education[0]['degree'], 'PhD Psychology')
+
+    def test_psychologist_certification_serializer(self):
+        """Test PsychologistCertificationSerializer"""
+        user = User.objects.create_user(
+            email='test2@test.com',
+            password='testpass123',
+            user_type='Psychologist'
+        )
+        psychologist = Psychologist.objects.create(
+            user=user,
+            first_name='Test',
+            last_name='Doc',
+            license_number='PSY456',
+            license_issuing_authority='State',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            offers_online_sessions=True,  # Only offer online sessions
+            offers_initial_consultation=False  # Don't require office address
+        )
+
+        certification_data = {
+            'certifications': [
+                {
+                    'name': 'Test Certification',
+                    'institution': 'Test Board',
+                    'year': 2016
+                }
+            ]
         }
 
-        serializer = PsychologistSearchSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('max_experience', serializer.errors)
-
-    def test_rate_range_validation(self):
-        """Test rate range validation"""
-        data = {
-            'min_rate': Decimal('200.00'),
-            'max_rate': Decimal('100.00')  # Max less than min
-        }
-
-        serializer = PsychologistSearchSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('max_rate', serializer.errors)
-
-    def test_available_on_past_date_validation(self):
-        """Test available_on date validation"""
-        data = {
-            'available_on': date.today() - timedelta(days=1)  # Past date
-        }
-
-        serializer = PsychologistSearchSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('available_on', serializer.errors)
-
-    def test_default_ordering(self):
-        """Test default ordering"""
-        serializer = PsychologistSearchSerializer(data={})
+        serializer = PsychologistCertificationSerializer(data=certification_data)
         self.assertTrue(serializer.is_valid())
-        self.assertEqual(serializer.validated_data['ordering'], '-created_at')
+
+        updated_psychologist = serializer.update(psychologist, serializer.validated_data)
+        self.assertEqual(len(updated_psychologist.certifications), 1)
+        self.assertEqual(updated_psychologist.certifications[0]['name'], 'Test Certification')
 
 
-class PsychologistVerificationSerializerTest(TestCase):
-    """Test psychologist verification serializer"""
+class PsychologistVerificationSerializerTestCase(TestCase):
+    """Test cases for PsychologistVerificationSerializer"""
 
     def setUp(self):
+        """Set up test data"""
         self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
+            email='psychologist@test.com',
+            password='testpass123',
             user_type='Psychologist'
         )
         self.psychologist = Psychologist.objects.create(
             user=self.user,
             first_name='John',
             last_name='Doe',
-            license_number='PSY-123456',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
             years_of_experience=5,
+            biography='Complete profile',
+            education=[{'degree': 'PhD', 'institution': 'University', 'year': '2015'}],
+            offers_online_sessions=True,
+            offers_initial_consultation=False,  # Don't require office address
             verification_status='Pending'
         )
 
-    def test_verification_status_update(self):
-        """Test verification status update"""
-        data = {
+    def test_valid_verification_status_change(self):
+        """Test valid verification status changes"""
+        update_data = {
             'verification_status': 'Approved',
-            'admin_notes': 'All documents verified'
+            'admin_notes': 'All requirements met'
         }
 
-        serializer = PsychologistVerificationSerializer(instance=self.psychologist, data=data, partial=True)
+        serializer = PsychologistVerificationSerializer(
+            instance=self.psychologist,
+            data=update_data,
+            partial=True
+        )
+
         self.assertTrue(serializer.is_valid())
+        updated_psychologist = serializer.save()
+        self.assertEqual(updated_psychologist.verification_status, 'Approved')
+        self.assertEqual(updated_psychologist.admin_notes, 'All requirements met')
 
-    def test_rejection_requires_admin_notes(self):
-        """Test that rejection requires admin notes"""
-        data = {
-            'verification_status': 'Rejected'
-            # Missing admin_notes
-        }
-
-        serializer = PsychologistVerificationSerializer(instance=self.psychologist, data=data, partial=True)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('admin_notes', serializer.errors)
-
-    def test_approved_to_pending_transition_validation(self):
-        """Test invalid status transition from Approved to Pending"""
-        # First approve the psychologist
-        self.psychologist.verification_status = 'Approved'
+    def test_approval_with_missing_requirements(self):
+        """Test approval fails when requirements are missing"""
+        # Remove biography to create missing requirement
+        self.psychologist.biography = ''
         self.psychologist.save()
 
-        # Try to change back to pending
-        data = {'verification_status': 'Pending'}
-        serializer = PsychologistVerificationSerializer(instance=self.psychologist, data=data, partial=True)
+        update_data = {'verification_status': 'Approved'}
+
+        serializer = PsychologistVerificationSerializer(
+            instance=self.psychologist,
+            data=update_data,
+            partial=True
+        )
+
         self.assertFalse(serializer.is_valid())
         self.assertIn('verification_status', serializer.errors)
 
-    def test_read_only_fields(self):
-        """Test that read-only fields cannot be updated"""
-        data = {
-            'license_number': 'NEW-123',
-            'years_of_experience': 100
-        }
+    def test_invalid_verification_status(self):
+        """Test invalid verification status"""
+        update_data = {'verification_status': 'InvalidStatus'}
 
-        serializer = PsychologistVerificationSerializer(instance=self.psychologist, data=data, partial=True)
-        self.assertTrue(serializer.is_valid())
+        serializer = PsychologistVerificationSerializer(
+            instance=self.psychologist,
+            data=update_data,
+            partial=True
+        )
 
-        # These fields should not change
-        updated_instance = serializer.save()
-        self.assertEqual(updated_instance.license_number, 'PSY-123456')
-        self.assertEqual(updated_instance.years_of_experience, 5)
+        self.assertFalse(serializer.is_valid())
+        self.assertIn('verification_status', serializer.errors)
+
+    def test_computed_fields(self):
+        """Test computed fields in verification serializer"""
+        serializer = PsychologistVerificationSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        self.assertIn('profile_completeness', data)
+        self.assertIn('verification_requirements', data)
+        self.assertEqual(data['full_name'], 'Dr. John Doe')
+        self.assertEqual(data['email'], 'psychologist@test.com')
+        self.assertTrue(data['license_is_valid'])
 
 
-class AvailabilityBulkSerializerTest(TestCase):
-    """Test availability bulk operations serializer"""
+class PsychologistSummarySerializerTestCase(TestCase):
+    """Test cases for PsychologistSummarySerializer"""
 
     def setUp(self):
+        """Set up test data"""
         self.user = User.objects.create_user(
-            email='test@example.com',
-            password='password123',
+            email='psychologist@test.com',
+            password='testpass123',
             user_type='Psychologist'
         )
         self.psychologist = Psychologist.objects.create(
             user=self.user,
             first_name='John',
             last_name='Doe',
-            license_number='PSY-123456',
-            years_of_experience=5
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            verification_status='Approved',
+            offers_online_sessions=True,
+            offers_initial_consultation=True,
+            office_address='123 Test St'  # Required for initial consultations
         )
 
-    def test_valid_bulk_create_operation(self):
-        """Test valid bulk create operation"""
-        data = {
-            'operation': 'create',
-            'availability_slots': [
-                {
-                    'day_of_week': 1,
-                    'start_time': time(9, 0),
-                    'end_time': time(12, 0),
-                    'is_recurring': True
-                },
-                {
-                    'day_of_week': 2,
-                    'start_time': time(14, 0),
-                    'end_time': time(17, 0),
-                    'is_recurring': True
-                }
-            ]
-        }
+    def test_summary_serializer_fields(self):
+        """Test summary serializer includes correct fields"""
+        serializer = PsychologistSummarySerializer(instance=self.psychologist)
+        data = serializer.data
 
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertTrue(serializer.is_valid())
+        # Should include summary information
+        self.assertEqual(data['full_name'], 'Dr. John Doe')
+        self.assertEqual(data['email'], 'psychologist@test.com')
+        self.assertEqual(data['years_of_experience'], 5)
+        self.assertEqual(data['verification_status'], 'Approved')
+        self.assertIn('Online Sessions', data['services_offered'])
+        self.assertIn('Initial Consultations', data['services_offered'])
 
-    def test_valid_bulk_delete_operation(self):
-        data = {
-        'operation': 'delete',
-        'slot_ids': [1, 2, 3]  # Only slot_ids, no availability_slots
-        }
-        serializer = AvailabilityBulkSerializer(data=data)
-        is_valid = serializer.is_valid()
-        print("Is Valid:", is_valid)
-        print("Serializer Errors:", serializer.errors)
-        self.assertTrue(is_valid)
+        # Should include office address for initial consultations
+        self.assertEqual(data['office_address'], '123 Test St')
 
-
-
-    def test_delete_operation_missing_slot_ids(self):
-        """Test delete operation validation without slot IDs"""
-        data = {
-            'operation': 'delete',
-            'availability_slots': []
-        }
-
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('availability_slots', serializer.errors)
-
-    def test_create_operation_missing_slots(self):
-        """Test create operation validation without slots"""
-        data = {
-            'operation': 'create'
-            # Missing availability_slots
-        }
-
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('availability_slots', serializer.errors)
-
-    def test_duplicate_slots_validation(self):
-        """Test duplicate slots validation"""
-        data = {
-            'operation': 'create',
-            'availability_slots': [
-                {
-                    'day_of_week': 1,
-                    'start_time': time(9, 0),
-                    'end_time': time(12, 0),
-                    'is_recurring': True
-                },
-                {
-                    'day_of_week': 1,
-                    'start_time': time(9, 0),
-                    'end_time': time(12, 0),
-                    'is_recurring': True
-                }  # Duplicate slot
-            ]
-        }
-
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('availability_slots', serializer.errors)
-
-    def test_too_many_slots_validation(self):
-        """Test validation for too many slots"""
-        # Create 51 slots (over the limit of 50)
-        slots = []
-        for i in range(51):
-            slots.append({
-                'day_of_week': i % 7,
-                'start_time': time(9, 0),
-                'end_time': time(10, 0),
-                'is_recurring': True
-            })
-
-        data = {
-            'operation': 'create',
-            'availability_slots': slots
-        }
-
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('availability_slots', serializer.errors)
-
-    def test_delete_operation_with_slots_validation(self):
-        """Test delete operation should not have availability slots"""
-        data = {
-            'operation': 'delete',
-            'slot_ids': [1, 2],
-            'availability_slots': [
-                {
-                    'day_of_week': 1,
-                    'start_time': time(9, 0),
-                    'end_time': time(12, 0),
-                    'is_recurring': True
-                }
-            ]
-        }
-
-        serializer = AvailabilityBulkSerializer(data=data)
-        self.assertFalse(serializer.is_valid())
-        self.assertIn('availability_slots', serializer.errors)
+        # Should not include sensitive information
+        self.assertNotIn('license_number', data)
+        self.assertNotIn('admin_notes', data)
+        self.assertNotIn('biography', data)
