@@ -52,6 +52,8 @@ INSTALLED_APPS = [
     'users',
     'parents',
     'children',
+    'psychologists',
+
 ]
 
 MIDDLEWARE = [
