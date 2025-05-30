@@ -13,6 +13,18 @@ DATABASES = {
     }
 }
 
+# Override database settings if running tests
+if 'test' in sys.argv:
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': 'testdb',       # Matches POSTGRES_DB in docker-compose.test.yml
+        'USER': 'testuser',     # Matches POSTGRES_USER in docker-compose.test.yml
+        'PASSWORD': 'testpass', # Matches POSTGRES_PASSWORD in docker-compose.test.yml
+        'HOST': 'db',           # This is the service name from docker-compose.test.yml
+        'PORT': '5432',
+    }
+
+
 # Development-specific settings
 CORS_ALLOW_ALL_ORIGINS = True  # Be careful with this in production
 
