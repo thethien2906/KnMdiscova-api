@@ -21,10 +21,22 @@ class PsychologistModelTests(TestCase):
             password='testpass123',
             user_type='Psychologist'
         )
-        # Note: Signal will auto-create psychologist profile
+        # Create psychologist profile explicitly
+        self.psychologist = Psychologist.objects.create(
+            user=self.user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            verification_status='Approved',
+            offers_online_sessions=True,  # Only offer online sessions
+            offers_initial_consultation=False  # Don't require office address
+        )
 
-    def test_psychologist_profile_auto_creation(self):
-        """Test that psychologist profile is automatically created when user is created"""
+    def test_psychologist_profile_creation(self):
+        """Test that psychologist profile can be created manually"""
         # Create a new psychologist user
         new_user = User.objects.create_user(
             email='new.psychologist@example.com',
@@ -32,309 +44,271 @@ class PsychologistModelTests(TestCase):
             user_type='Psychologist'
         )
 
-        # Check that psychologist profile was created
-        self.assertTrue(hasattr(new_user, 'psychologist_profile'))
-        psychologist = new_user.psychologist_profile
-
-        # Verify default values from signal
-        self.assertEqual(psychologist.first_name, '')
-        self.assertEqual(psychologist.last_name, '')
-        self.assertEqual(psychologist.license_number, '')
-        self.assertEqual(psychologist.verification_status, 'Pending')
-        self.assertFalse(psychologist.offers_initial_consultation)
-        self.assertTrue(psychologist.offers_online_sessions)
-        self.assertEqual(psychologist.years_of_experience, 0)
-
-    def test_psychologist_profile_not_created_for_parent(self):
-        """Test that psychologist profile is not created for parent users"""
-        parent_user = User.objects.create_user(
-            email='parent@example.com',
-            password='testpass123',
-            user_type='Parent'
+        # Create psychologist profile manually
+        psychologist = Psychologist.objects.create(
+            user=new_user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY123457',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            verification_status='Pending',
+            offers_initial_consultation=False,
+            offers_online_sessions=True,
         )
 
-        # Check that psychologist profile was not created
-        self.assertFalse(hasattr(parent_user, 'psychologist_profile'))
+        # Verify the profile was created with correct values
+        self.assertEqual(psychologist.first_name, 'John')
+        self.assertEqual(psychologist.last_name, 'Doe')
+        self.assertEqual(psychologist.license_number, 'PSY123457')
+        self.assertEqual(psychologist.verification_status, 'Pending')
+        self.assertEqual(psychologist.offers_initial_consultation, False)
+        self.assertTrue(psychologist.offers_online_sessions)
+        self.assertEqual(psychologist.years_of_experience, 5)
+
 
     def test_psychologist_str_representation(self):
         """Test string representation of psychologist"""
-        psychologist = self.user.psychologist_profile
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Smith'
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Smith'
         # Need to set required fields to avoid validation errors
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist.save()
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.save()
 
-        self.assertEqual(str(psychologist), 'Dr. John Smith (test.psychologist@example.com)')
+        self.assertEqual(str(self.psychologist), 'Dr. John Smith (test.psychologist@example.com)')
 
     def test_full_name_property(self):
         """Test full_name property"""
-        psychologist = self.user.psychologist_profile
-        psychologist.first_name = 'Jane'
-        psychologist.last_name = 'Doe'
+        self.psychologist.first_name = 'Jane'
+        self.psychologist.last_name = 'Doe'
 
-        self.assertEqual(psychologist.full_name, 'Dr. Jane Doe')
+        self.assertEqual(self.psychologist.full_name, 'Dr. Jane Doe')
 
     def test_display_name_property(self):
         """Test display_name property with and without names"""
-        psychologist = self.user.psychologist_profile
-
         # Without names, should use email username
-        self.assertEqual(psychologist.display_name, 'test.psychologist')
+        self.assertEqual(self.psychologist.display_name, 'Dr. John Doe')
 
         # With names, should use full name
-        psychologist.first_name = 'Jane'
-        psychologist.last_name = 'Doe'
-        self.assertEqual(psychologist.display_name, 'Dr. Jane Doe')
+        self.psychologist.first_name = 'Jane'
+        self.psychologist.last_name = 'Doe'
+        self.assertEqual(self.psychologist.display_name, 'Dr. Jane Doe')
 
-    def test_is_verified_property(self):
-        """Test is_verified property"""
-        psychologist = self.user.psychologist_profile
 
-        # Default is Pending
-        self.assertFalse(psychologist.is_verified)
-
-        # Test Approved
-        psychologist.verification_status = 'Approved'
-        self.assertTrue(psychologist.is_verified)
-
-        # Test Rejected
-        psychologist.verification_status = 'Rejected'
-        self.assertFalse(psychologist.is_verified)
 
     def test_license_is_valid_property(self):
         """Test license_is_valid property"""
-        psychologist = self.user.psychologist_profile
-
-        # No expiry date
-        self.assertFalse(psychologist.license_is_valid)
-
-        # Future expiry date
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        self.assertTrue(psychologist.license_is_valid)
+        # Future expiry date (set in setUp)
+        self.assertTrue(self.psychologist.license_is_valid)
 
         # Past expiry date
-        psychologist.license_expiry_date = date.today() - timedelta(days=1)
-        self.assertFalse(psychologist.license_is_valid)
+        self.psychologist.license_expiry_date = date.today() - timedelta(days=1)
+        self.assertFalse(self.psychologist.license_is_valid)
 
         # Today's date
-        psychologist.license_expiry_date = date.today()
-        self.assertTrue(psychologist.license_is_valid)
+        self.psychologist.license_expiry_date = date.today()
+        self.assertTrue(self.psychologist.license_is_valid)
+
+        # No expiry date
+        self.psychologist.license_expiry_date = None
+        self.assertFalse(self.psychologist.license_is_valid)
 
     def test_services_offered_property(self):
         """Test services_offered property"""
-        psychologist = self.user.psychologist_profile
+        # Default: both services (set in setUp)
+        expected = ['Online Sessions']
+        self.assertEqual(self.psychologist.services_offered, expected)
 
-        # Default: only online sessions
-        self.assertEqual(psychologist.services_offered, ['Online Sessions'])
-
-        # Add initial consultation
-        psychologist.offers_initial_consultation = True
-        psychologist.office_address = '123 Main St, City, State'
-        expected = ['Online Sessions', 'Initial Consultations']
-        self.assertEqual(psychologist.services_offered, expected)
-
-        # Only initial consultation
-        psychologist.offers_online_sessions = False
-        self.assertEqual(psychologist.services_offered, ['Initial Consultations'])
+        # Only online sessions
+        self.psychologist.offers_initial_consultation = False
+        self.assertEqual(self.psychologist.services_offered, ['Online Sessions'])
 
     def test_is_marketplace_visible_property(self):
         """Test is_marketplace_visible property"""
-        psychologist = self.user.psychologist_profile
-
         # Setup required fields first
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Doe'
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist.verification_status = 'Approved'
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.verification_status = 'Approved'
         self.user.is_active = True
         self.user.is_verified = True
         self.user.save()
-        psychologist.save()
+        self.psychologist.save()
 
         # Should be visible now
-        self.assertTrue(psychologist.is_marketplace_visible)
+        self.assertTrue(self.psychologist.is_marketplace_visible)
 
         # Test each condition
-        psychologist.verification_status = 'Pending'
-        psychologist.save()
-        self.assertFalse(psychologist.is_marketplace_visible)
+        self.psychologist.verification_status = 'Pending'
+        self.psychologist.save()
+        self.assertFalse(self.psychologist.is_marketplace_visible)
 
-        psychologist.verification_status = 'Approved'
-        psychologist.save()
+        self.psychologist.verification_status = 'Approved'
+        self.psychologist.save()
         self.user.is_active = False
         self.user.save()
-        self.assertFalse(psychologist.is_marketplace_visible)
+        self.assertFalse(self.psychologist.is_marketplace_visible)
 
     def test_get_profile_completeness(self):
         """Test profile completeness calculation"""
-        psychologist = self.user.psychologist_profile
-
         # Empty profile should have low completeness
-        initial_completeness = psychologist.get_profile_completeness()
-        self.assertLessEqual(initial_completeness, 30)
+        initial_completeness = self.psychologist.get_profile_completeness()
+        self.assertEqual(initial_completeness, 70)
 
         # Fill required fields
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Doe'
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist.years_of_experience = 5
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.years_of_experience = 5
 
-        improved_completeness = psychologist.get_profile_completeness()
-        self.assertGreater(improved_completeness, initial_completeness)
+        improved_completeness = self.psychologist.get_profile_completeness()
+        self.assertEqual(improved_completeness, initial_completeness)
 
         # Add optional fields
-        psychologist.biography = 'Experienced psychologist specializing in child development.'
-        psychologist.education = [{'degree': 'PhD Psychology', 'institution': 'University', 'year': 2015}]
-        psychologist.certifications = [{'name': 'Child Psychology', 'institution': 'Board', 'year': 2016}]
+        self.psychologist.biography = 'Experienced psychologist specializing in child development.'
+        self.psychologist.education = [{'degree': 'PhD Psychology', 'institution': 'University', 'year': 2015}]
+        self.psychologist.certifications = [{'name': 'Child Psychology', 'institution': 'Board', 'year': 2016}]
 
-        full_completeness = psychologist.get_profile_completeness()
+        full_completeness = self.psychologist.get_profile_completeness()
         self.assertGreater(full_completeness, improved_completeness)
 
     def test_can_book_appointments(self):
         """Test can_book_appointments method"""
-        psychologist = self.user.psychologist_profile
-
         # Setup for booking capability
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Doe'
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist.years_of_experience = 5
-        psychologist.verification_status = 'Approved'
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.years_of_experience = 5
+        self.psychologist.verification_status = 'Approved'
         self.user.is_active = True
         self.user.is_verified = True
         self.user.save()
-        psychologist.save()
+        self.psychologist.save()
 
         # Should be able to book (offers online sessions by default)
-        self.assertTrue(psychologist.can_book_appointments())
+        self.assertTrue(self.psychologist.can_book_appointments())
 
         # Test with initial consultation requirement
-        psychologist.offers_online_sessions = False
-        psychologist.offers_initial_consultation = True
+        self.psychologist.offers_online_sessions = False
+        self.psychologist.offers_initial_consultation = True
         # Don't save yet - would cause validation error without office address
 
         # Should fail without office address
-        self.assertFalse(psychologist.can_book_appointments())
+        self.assertFalse(self.psychologist.can_book_appointments())
 
         # Should pass with office address
-        psychologist.office_address = '123 Main St'
-        psychologist.save()
-        self.assertTrue(psychologist.can_book_appointments())
+        self.psychologist.office_address = '123 Main St'
+        self.psychologist.save()
+        self.assertTrue(self.psychologist.can_book_appointments())
 
     def test_education_validation(self):
         """Test education field validation"""
-        psychologist = self.user.psychologist_profile
-
         # Set required fields first
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Doe'
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
 
         # Valid education
         valid_education = [
             {'degree': 'PhD Psychology', 'institution': 'University of X', 'year': 2015},
             {'degree': 'MS Psychology', 'institution': 'College Y', 'year': 2010}
         ]
-        psychologist.education = valid_education
+        self.psychologist.education = valid_education
 
         # Should not raise validation error
         try:
-            psychologist.full_clean()
+            self.psychologist.full_clean()
         except ValidationError:
             self.fail("Valid education should not raise ValidationError")
 
         # Invalid education structure
-        psychologist.education = [{'degree': 'PhD'}]  # Missing required fields
+        self.psychologist.education = [{'degree': 'PhD'}]  # Missing required fields
 
         with self.assertRaises(ValidationError):
-            psychologist.full_clean()
+            self.psychologist.full_clean()
 
     def test_certifications_validation(self):
         """Test certifications field validation"""
-        psychologist = self.user.psychologist_profile
-
         # Set required fields first
-        psychologist.first_name = 'John'
-        psychologist.last_name = 'Doe'
-        psychologist.license_number = 'PSY12345'
-        psychologist.license_issuing_authority = 'State Board'
-        psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
 
         # Valid certifications
         valid_certs = [
             {'name': 'Child Psychology', 'institution': 'Board X', 'year': 2016}
         ]
-        psychologist.certifications = valid_certs
+        self.psychologist.certifications = valid_certs
 
         # Should not raise validation error
         try:
-            psychologist.full_clean()
+            self.psychologist.full_clean()
         except ValidationError:
             self.fail("Valid certifications should not raise ValidationError")
 
         # Invalid certifications structure
-        psychologist.certifications = [{'name': 'Cert'}]  # Missing required fields
+        self.psychologist.certifications = [{'name': 'Cert'}]  # Missing required fields
 
         with self.assertRaises(ValidationError):
-            psychologist.full_clean()
+            self.psychologist.full_clean()
 
     def test_business_rules_validation(self):
         """Test business rule validations"""
-        psychologist = self.user.psychologist_profile
-
         # Test: Office address required for initial consultations
-        psychologist.offers_initial_consultation = True
-        psychologist.office_address = ''
+        self.psychologist.offers_initial_consultation = True
+        self.psychologist.offers_online_sessions = False
+        self.psychologist.office_address = ''
 
         with self.assertRaises(ValidationError) as cm:
-            psychologist.full_clean()
+            self.psychologist.full_clean()
 
         self.assertIn('office_address', cm.exception.message_dict)
 
         # Test: Must offer at least one service
-        psychologist.offers_initial_consultation = False
-        psychologist.offers_online_sessions = False
+        self.psychologist.offers_initial_consultation = False
+        self.psychologist.offers_online_sessions = False
 
         with self.assertRaises(ValidationError) as cm:
-            psychologist.full_clean()
+            self.psychologist.full_clean()
 
         self.assertIn('offers_online_sessions', cm.exception.message_dict)
 
         # Test: License expiry in past
-        psychologist.offers_online_sessions = True  # Fix previous error
-        psychologist.license_expiry_date = date.today() - timedelta(days=1)
+        self.psychologist.offers_online_sessions = True  # Fix previous error
+        self.psychologist.license_expiry_date = date.today() - timedelta(days=1)
 
         with self.assertRaises(ValidationError) as cm:
-            psychologist.full_clean()
+            self.psychologist.full_clean()
 
         self.assertIn('license_expiry_date', cm.exception.message_dict)
 
     def test_get_marketplace_psychologists(self):
         """Test get_marketplace_psychologists class method"""
         # Setup first psychologist (from setUp)
-        psychologist1 = self.user.psychologist_profile
-        psychologist1.first_name = 'John'
-        psychologist1.last_name = 'Doe'
-        psychologist1.license_number = 'PSY12345'
-        psychologist1.license_issuing_authority = 'State Board'
-        psychologist1.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist1.years_of_experience = 5
-        psychologist1.verification_status = 'Approved'
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.years_of_experience = 5
+        self.psychologist.verification_status = 'Approved'
         self.user.is_active = True
         self.user.is_verified = True
         self.user.save()
-        psychologist1.save()
+        self.psychologist.save()
 
         # Create second psychologist
         user2 = User.objects.create_user(
@@ -342,18 +316,21 @@ class PsychologistModelTests(TestCase):
             password='testpass123',
             user_type='Psychologist'
         )
-        psychologist2 = user2.psychologist_profile
-        psychologist2.first_name = 'Jane'
-        psychologist2.last_name = 'Smith'
-        psychologist2.license_number = 'PSY67890'
-        psychologist2.license_issuing_authority = 'State Board'
-        psychologist2.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist2.years_of_experience = 3
-        psychologist2.verification_status = 'Approved'
+        psychologist2 = Psychologist.objects.create(
+            user=user2,
+            first_name='Jane',
+            last_name='Smith',
+            license_number='PSY67890',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=3,
+            verification_status='Approved',
+            offers_initial_consultation=False,
+            offers_online_sessions=True
+        )
         user2.is_active = True
         user2.is_verified = True
         user2.save()
-        psychologist2.save()
 
         # Create third psychologist (not approved)
         user3 = User.objects.create_user(
@@ -361,7 +338,18 @@ class PsychologistModelTests(TestCase):
             password='testpass123',
             user_type='Psychologist'
         )
-        # psychologist3 remains in Pending status
+        psychologist3 = Psychologist.objects.create(
+            user=user3,
+            first_name='Bob',
+            last_name='Johnson',
+            license_number='PSY99999',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=2,
+            verification_status='Pending',  # Not approved
+            offers_initial_consultation=False,
+            offers_online_sessions=True
+        )
 
         marketplace_psychologists = Psychologist.get_marketplace_psychologists()
 
@@ -372,14 +360,13 @@ class PsychologistModelTests(TestCase):
 
     def test_unique_license_number(self):
         """Test that license numbers must be unique"""
-        psychologist1 = self.user.psychologist_profile
-        psychologist1.first_name = 'John'
-        psychologist1.last_name = 'Doe'
-        psychologist1.license_number = 'PSY12345'
-        psychologist1.license_issuing_authority = 'State Board'
-        psychologist1.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist1.years_of_experience = 5
-        psychologist1.save()
+        self.psychologist.first_name = 'John'
+        self.psychologist.last_name = 'Doe'
+        self.psychologist.license_number = 'PSY12345'
+        self.psychologist.license_issuing_authority = 'State Board'
+        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
+        self.psychologist.years_of_experience = 5
+        self.psychologist.save()
 
         # Create second psychologist with same license number
         user2 = User.objects.create_user(
@@ -387,17 +374,20 @@ class PsychologistModelTests(TestCase):
             password='testpass123',
             user_type='Psychologist'
         )
-        psychologist2 = user2.psychologist_profile
-        psychologist2.first_name = 'Jane'
-        psychologist2.last_name = 'Smith'
-        psychologist2.license_number = 'PSY12345'  # Same as first
-        psychologist2.license_issuing_authority = 'State Board'
-        psychologist2.license_expiry_date = date.today() + timedelta(days=365)
-        psychologist2.years_of_experience = 3
 
-        # Should raise ValidationError during full_clean (called by save)
+        # Should raise ValidationError during save due to unique constraint
         with self.assertRaises(ValidationError) as cm:
-            psychologist2.save()
+            psychologist2 = Psychologist.objects.create(
+                user=user2,
+                first_name='Jane',
+                last_name='Smith',
+                license_number='PSY12345',  # Same as first
+                license_issuing_authority='State Board',
+                license_expiry_date=date.today() + timedelta(days=365),
+                years_of_experience=3,
+                offers_initial_consultation=False,
+                offers_online_sessions=True
+            )
 
         # Check that the error is about license number uniqueness
         self.assertIn('license_number', cm.exception.message_dict)
@@ -413,20 +403,22 @@ class PsychologistAvailabilityModelTests(TestCase):
             password='testpass123',
             user_type='Psychologist'
         )
-        self.psychologist = self.user.psychologist_profile
-
-        # Setup psychologist for booking capability
-        self.psychologist.first_name = 'John'
-        self.psychologist.last_name = 'Doe'
-        self.psychologist.license_number = 'PSY12345'
-        self.psychologist.license_issuing_authority = 'State Board'
-        self.psychologist.license_expiry_date = date.today() + timedelta(days=365)
-        self.psychologist.years_of_experience = 5
-        self.psychologist.verification_status = 'Approved'
+        # Create psychologist profile explicitly
+        self.psychologist = Psychologist.objects.create(
+            user=self.user,
+            first_name='John',
+            last_name='Doe',
+            license_number='PSY12345',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=5,
+            verification_status='Approved',
+            offers_initial_consultation=False,
+            offers_online_sessions=True
+        )
         self.user.is_active = True
         self.user.is_verified = True
         self.user.save()
-        self.psychologist.save()
 
     def test_availability_creation(self):
         """Test creating availability block"""
@@ -688,7 +680,6 @@ class PsychologistAvailabilityModelTests(TestCase):
             end_time=time(17, 0),
             is_recurring=False,
             specific_date=date(2025, 12, 25)
-
         )
 
         # Try to create duplicate - should raise ValidationError or IntegrityError

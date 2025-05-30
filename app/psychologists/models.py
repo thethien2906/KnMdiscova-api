@@ -291,9 +291,9 @@ class Psychologist(models.Model):
             # MVP: Pricing fields are no implementable for now
             # 'hourly_rate': self.hourly_rate if self.offers_online_sessions else True,
             # 'initial_consultation_rate': self.initial_consultation_rate if self.offers_initial_consultation else True,
-            'office_address': self.office_address if self.offers_initial_consultation else True,
         }
-
+        if self.offers_initial_consultation:
+            important_fields['office_address'] = self.office_address
         # Count completed fields
         completed_required = sum(1 for value in required_fields.values()
                                if value is not None and str(value).strip())

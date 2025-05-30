@@ -23,6 +23,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Security
 SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    # Only allow empty SECRET_KEY in development/testing
+    if 'test' in sys.argv or 'pytest' in sys.modules:
+        SECRET_KEY = 'django-insecure-fallback-for-testing'
+    elif os.environ.get('DJANGO_SETTINGS_MODULE', '').endswith('development'):
+        SECRET_KEY = 'django-insecure-fallback-for-development'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required")
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 # Parse ALLOWED_HOSTS from environment variable
