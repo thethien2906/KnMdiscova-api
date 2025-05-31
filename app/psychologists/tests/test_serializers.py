@@ -305,6 +305,13 @@ class PsychologistMarketplaceSerializerTestCase(TestCase):
         self.assertEqual(data['biography'], 'Test biography')
         self.assertIn('Online Sessions', data['services_offered'])
 
+        # Should include MVP pricing information
+        self.assertIn('pricing', data)
+        pricing = data['pricing']
+        self.assertEqual(pricing['currency'], 'USD')
+        self.assertEqual(Decimal(str(pricing['online_session_rate'])), Decimal('150.00'))
+        self.assertEqual(Decimal(str(pricing['initial_consultation_rate'])), Decimal('280.00'))
+
         # Should not include sensitive information
         self.assertNotIn('license_number', data)
         self.assertNotIn('admin_notes', data)
@@ -323,12 +330,108 @@ class PsychologistMarketplaceSerializerTestCase(TestCase):
 
     def test_profile_completeness_calculation(self):
         """Test profile completeness method"""
-
         serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
         data = serializer.data
 
         self.assertIn('profile_completeness', data)
         self.assertIsInstance(data['profile_completeness'], float)
+
+    def test_pricing_for_different_service_offerings(self):
+        """Test pricing display for different service combinations"""
+        # Test online sessions only
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        self.assertEqual(data['offers_online_sessions'], True)
+        self.assertEqual(data['offers_initial_consultation'], False)
+        # Pricing should still show both rates (MVP fixed pricing)
+        self.assertIn('pricing', data)
+
+    def test_psychologist_with_both_services(self):
+        """Test psychologist offering both services"""
+        # Update to offer both services
+        self.psychologist.offers_initial_consultation = True
+        self.psychologist.office_address = "123 Main St, City, State"
+        self.psychologist.save()
+
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        # Should show both services
+        services = data['services_offered']
+        self.assertIn('Online Sessions', services)
+        self.assertIn('Initial Consultations', services)
+
+        # Should include office address for initial consultations
+        self.assertEqual(data['office_address'], "123 Main St, City, State")
+
+        # Pricing should be the same (MVP fixed rates)
+        pricing = data['pricing']
+        self.assertEqual(Decimal(str(pricing['online_session_rate'])), Decimal('150.00'))
+        self.assertEqual(Decimal(str(pricing['initial_consultation_rate'])), Decimal('280.00'))
+
+    def test_pricing_consistency_across_psychologists(self):
+        """Test that all psychologists get the same MVP pricing"""
+        # Create another psychologist
+        user2 = User.objects.create_user(
+            email='psychologist2@test.com',
+            password='testpass123',
+            user_type='Psychologist',
+            is_verified=True
+        )
+        psychologist2 = Psychologist.objects.create(
+            user=user2,
+            first_name='Jane',
+            last_name='Smith',
+            license_number='PSY67890',
+            license_issuing_authority='State Board',
+            license_expiry_date=date.today() + timedelta(days=365),
+            years_of_experience=10,  # Different experience
+            verification_status='Approved',
+            offers_online_sessions=True,
+            offers_initial_consultation=True,
+            office_address="456 Oak Ave, City, State",
+            biography='Different biography'
+        )
+
+        # Serialize both psychologists
+        serializer1 = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        serializer2 = PsychologistMarketplaceSerializer(instance=psychologist2)
+
+        data1 = serializer1.data
+        data2 = serializer2.data
+
+        # Pricing should be identical (MVP fixed pricing)
+        self.assertEqual(data1['pricing'], data2['pricing'])
+
+        # But other details should be different
+        self.assertNotEqual(data1['full_name'], data2['full_name'])
+        self.assertNotEqual(data1['years_of_experience'], data2['years_of_experience'])
+
+    def test_serializer_fields_structure(self):
+        """Test that all expected fields are present"""
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        expected_fields = [
+            'user', 'full_name', 'years_of_experience', 'biography',
+            'offers_initial_consultation', 'offers_online_sessions', 'services_offered',
+            'office_address', 'website_url', 'linkedin_url',
+            'profile_completeness', 'license_issuing_authority',
+            'education', 'certifications', 'created_at', 'pricing'
+        ]
+
+        for field in expected_fields:
+            self.assertIn(field, data, f"Field '{field}' should be present in serialized data")
+
+    def test_pricing_respects_settings(self):
+        """Test that pricing uses values from Django settings"""
+        serializer = PsychologistMarketplaceSerializer(instance=self.psychologist)
+        data = serializer.data
+
+        pricing = data['pricing']
+        self.assertEqual(Decimal(str(pricing['online_session_rate'])), Decimal('150.00'))
+        self.assertEqual(Decimal(str(pricing['initial_consultation_rate'])), Decimal('280.00'))
 
 
 class PsychologistSearchSerializerTestCase(TestCase):

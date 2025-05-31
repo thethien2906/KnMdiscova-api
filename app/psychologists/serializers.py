@@ -356,7 +356,7 @@ class PsychologistMarketplaceSerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     services_offered = serializers.ListField(read_only=True)
     profile_completeness = serializers.SerializerMethodField()
-
+    pricing = serializers.SerializerMethodField() # Optional pricing details
     class Meta:
         model = Psychologist
         fields = [
@@ -381,6 +381,7 @@ class PsychologistMarketplaceSerializer(serializers.ModelSerializer):
             # Pricing (MVP: Optional but public when available)
             'hourly_rate',
             'initial_consultation_rate',
+            'pricing',
 
             # Profile quality indicator
             'profile_completeness',
@@ -410,7 +411,10 @@ class PsychologistMarketplaceSerializer(serializers.ModelSerializer):
         if not instance.is_marketplace_visible:
             return {}
         return super().to_representation(instance)
-
+    def get_pricing(self, obj):
+        """Get MVP fixed pricing for marketplace display"""
+        from .pricing import MVPPricingService
+        return MVPPricingService.get_psychologist_rates(obj)
 
 class PsychologistDetailSerializer(PsychologistSerializer):
     """

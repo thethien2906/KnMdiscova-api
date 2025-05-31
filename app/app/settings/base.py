@@ -180,3 +180,9 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
+
+
+MVP_PRICING = {
+    'ONLINE_SESSION_RATE': 150.00,      # $150 for 1-hour online session
+    'INITIAL_CONSULTATION_RATE': 280.00  # $280 for 2-hour initial consultation
+}
