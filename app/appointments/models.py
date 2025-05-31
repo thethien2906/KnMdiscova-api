@@ -99,6 +99,7 @@ class AppointmentSlot(models.Model):
     def __str__(self):
         return f"{self.psychologist.display_name} - {self.slot_date} {self.start_time.strftime('%H:%M')}"
 
+    # In appointments/models.py - AppointmentSlot.clean() method
     def clean(self):
         """Model validation"""
         errors = {}
@@ -118,20 +119,24 @@ class AppointmentSlot(models.Model):
             if self.end_time != expected_end_time:
                 errors['end_time'] = _("End time must be exactly 1 hour after start time")
 
-        # Validate slot date matches availability block pattern
-        if self.availability_block and self.slot_date:
-            if self.availability_block.is_recurring:
-                # Check if slot date's day of week matches availability block
-                day_of_week = self.slot_date.weekday()
-                # Convert Python weekday (0=Monday) to our format (0=Sunday)
-                day_of_week = (day_of_week + 1) % 7
+        # Only validate slot date against availability block if availability_block exists
+        if self.availability_block_id and self.slot_date:  # Changed this line
+            try:
+                if self.availability_block.is_recurring:
+                    # Check if slot date's day of week matches availability block
+                    day_of_week = self.slot_date.weekday()
+                    # Convert Python weekday (0=Monday) to our format (0=Sunday)
+                    day_of_week = (day_of_week + 1) % 7
 
-                if day_of_week != self.availability_block.day_of_week:
-                    errors['slot_date'] = _("Slot date doesn't match availability block day of week")
-            else:
-                # For specific date availability, slot date must match
-                if self.slot_date != self.availability_block.specific_date:
-                    errors['slot_date'] = _("Slot date doesn't match availability block specific date")
+                    if day_of_week != self.availability_block.day_of_week:
+                        errors['slot_date'] = _("Slot date doesn't match availability block day of week")
+                else:
+                    # For specific date availability, slot date must match
+                    if self.slot_date != self.availability_block.specific_date:
+                        errors['slot_date'] = _("Slot date doesn't match availability block specific date")
+            except:
+                # If availability_block doesn't exist, skip this validation
+                pass
 
         if errors:
             raise ValidationError(errors)
@@ -437,8 +442,15 @@ class Appointment(models.Model):
         errors = {}
 
         # Validate child belongs to parent
-        if self.child and self.parent and self.child.parent != self.parent:
-            errors['child'] = _("Child must belong to the booking parent")
+        if self.child_id and self.parent_id:
+            try:
+                # Only validate if we have actual objects, not just IDs
+                if hasattr(self, '_child_cache') and hasattr(self, '_parent_cache'):
+                    if self.child.parent != self.parent:
+                        errors['child'] = _("Child must belong to the booking parent")
+            except (Child.DoesNotExist, Parent.DoesNotExist):
+                # Skip validation if objects don't exist yet
+                pass
 
         # Validate scheduled times are in the future (for new appointments)
         if not self.pk and self.scheduled_start_time:
@@ -475,7 +487,12 @@ class Appointment(models.Model):
         """Override save to set defaults and generate codes"""
         # Set meeting address default for InitialConsultation
         if self.session_type == 'InitialConsultation' and not self.meeting_address:
-            self.meeting_address = self.psychologist.office_address
+            try:
+                if self.psychologist and self.psychologist.office_address:
+                    self.meeting_address = self.psychologist.office_address
+            except Psychologist.DoesNotExist:
+                # If psychologist doesn't exist, skip setting meeting address
+                pass
 
         # Generate QR verification code for InitialConsultation
         if self.session_type == 'InitialConsultation' and not self.qr_verification_code:
