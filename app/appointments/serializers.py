@@ -235,7 +235,19 @@ class AppointmentCreateSerializer(serializers.ModelSerializer):
                     'start_slot_id': _("This slot is not available for booking")
                 })
 
-            # Store the start slot for service layer processing
+            # NEW: Validate consecutive slots for InitialConsultation
+            if session_type == 'InitialConsultation':
+                slots_needed = 2
+                consecutive_slots = AppointmentSlot.find_consecutive_slots(
+                    psychologist, start_slot.slot_date, start_slot.start_time, slots_needed
+                )
+
+                if len(consecutive_slots) < slots_needed:
+                    raise serializers.ValidationError({
+                        'start_slot_id': _("Not enough consecutive slots available for 2-hour appointment")
+                    })
+
+            # Store for service layer
             attrs['_start_slot'] = start_slot
 
         except AppointmentSlot.DoesNotExist:
