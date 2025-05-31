@@ -61,6 +61,7 @@ INSTALLED_APPS = [
     'parents',
     'children',
     'psychologists',
+    'appointments',
 
 ]
 

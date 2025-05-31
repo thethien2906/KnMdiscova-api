@@ -20,9 +20,9 @@ jobs:
               env:
                 DEBUG: False
                 DB_HOST: db
-                DB_NAME: devdb
-                DB_USER: devuser
-                DB_PASSWORD: changeme
+                DB_NAME: testdb
+                DB_USER: testuser
+                DB_PASSWORD: testpass
                 SECRET_KEY: test-secret-key-for-ci
                 EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
                 ALLOWED_HOSTS: localhost,127.0.0.1
