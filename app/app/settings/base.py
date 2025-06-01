@@ -53,6 +53,7 @@ INSTALLED_APPS = [
     'parents',
     'children',
     'psychologists',
+    'paypal_app',
 
 ]
 
@@ -168,7 +169,15 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
 
 # Frontend URL for email links
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8001')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
+
+# Payment Configuration
+PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID', '')
+PAYPAL_CLIENT_SECRET = os.environ.get('PAYPAL_CLIENT_SECRET', '')
+
+# Optionally log to verify (remove in production)
+print(f"PAYPAL_CLIENT_ID: {PAYPAL_CLIENT_ID}")
+print(f"PAYPAL_CLIENT_SECRET: {'***' if PAYPAL_CLIENT_SECRET else None}")
