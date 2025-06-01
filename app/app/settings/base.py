@@ -184,32 +184,11 @@ SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
 
+# CORS settings allowing all origins in development
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
 
 MVP_PRICING = {
     'ONLINE_SESSION_RATE': 150.00,      # $150 for 1-hour online session
     'INITIAL_CONSULTATION_RATE': 280.00  # $280 for 2-hour initial consultation
 }
-
-
-# CORS settings for React Native
-CORS_ALLOW_ALL_ORIGINS = True  # For development
-
-# For production, use specific origins:
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",  # React Native development
-#     "https://your-app-scheme://",  # Your React Native app scheme
-# ]
-
-CORS_ALLOW_CREDENTIALS = True
-
-CORS_ALLOW_HEADERS = [
-    'accept',
-    'accept-encoding',
-    'authorization',
-    'content-type',
-    'dnt',
-    'origin',
-    'user-agent',
-    'x-csrftoken',
-    'x-requested-with',
-]
