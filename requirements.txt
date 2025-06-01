@@ -9,3 +9,7 @@ python-dateutil==2.9.0
 gunicorn==21.2.0
 whitenoise==6.6.0
 django-cors-headers==4.3.1
+requests==2.32.3
+payos==0.1.4
+paypalrestsdk==1.13.1
+django-paypal>=1.0
