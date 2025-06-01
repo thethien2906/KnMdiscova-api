@@ -32,8 +32,8 @@ urlpatterns = [
     path('api/children/', include('children.urls')),
     # psychologists
     path('api/psychologists/', include('psychologists.urls')),
-    # paypal
-    path('api/paypal/', include('paypal_app.urls')),
+    # appointments
+    path('api/appointments/', include('appointments.urls')),
 ]
 
 

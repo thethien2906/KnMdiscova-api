@@ -5,7 +5,7 @@ services:  # Remove version line (obsolete)
       args:
         - DEV=true
     ports:
-      - "8001:8000"
+      - "8000:8000"
     volumes:
       - ./app:/app
     command: >
@@ -31,15 +31,13 @@ services:  # Remove version line (obsolete)
       - FRONTEND_URL= ${FRONTEND_URL:-http://localhost:8000}
       - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
       - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
-      - PAYPAL_CLIENT_ID=${PAYPAL_CLIENT_ID}
-      - PAYPAL_CLIENT_SECRET=${PAYPAL_CLIENT_SECRET}
     depends_on:
       - db
 
   db:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=${DB_USER:-avnadmin}
+      - POSTGRES_USER=${DB_USER:-devuser}
       - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
       - POSTGRES_DB=${DB_NAME:-devdb}
     volumes:

@@ -23,6 +23,14 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
 # Security
 SECRET_KEY = os.environ.get('SECRET_KEY')
+if not SECRET_KEY:
+    # Only allow empty SECRET_KEY in development/testing
+    if 'test' in sys.argv or 'pytest' in sys.modules:
+        SECRET_KEY = 'django-insecure-fallback-for-testing'
+    elif os.environ.get('DJANGO_SETTINGS_MODULE', '').endswith('development'):
+        SECRET_KEY = 'django-insecure-fallback-for-development'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required")
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
 # Parse ALLOWED_HOSTS from environment variable
@@ -44,16 +52,17 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'core',
     'rest_framework',
     'rest_framework.authtoken',
     'drf_spectacular',
     'django_extensions',
+    'corsheaders',  # For handling CORS
+    'core',
     'users',
     'parents',
     'children',
     'psychologists',
-    'paypal_app',
+    'appointments',
 
 ]
 
@@ -65,6 +74,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -169,15 +179,37 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
 
 # Frontend URL for email links
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8001')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
 
-# Payment Configuration
-PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID', '')
-PAYPAL_CLIENT_SECRET = os.environ.get('PAYPAL_CLIENT_SECRET', '')
 
-# Optionally log to verify (remove in production)
-print(f"PAYPAL_CLIENT_ID: {PAYPAL_CLIENT_ID}")
-print(f"PAYPAL_CLIENT_SECRET: {'***' if PAYPAL_CLIENT_SECRET else None}")
+MVP_PRICING = {
+    'ONLINE_SESSION_RATE': 150.00,      # $150 for 1-hour online session
+    'INITIAL_CONSULTATION_RATE': 280.00  # $280 for 2-hour initial consultation
+}
+
+
+# CORS settings for React Native
+CORS_ALLOW_ALL_ORIGINS = True  # For development
+
+# For production, use specific origins:
+# CORS_ALLOWED_ORIGINS = [
+#     "http://localhost:3000",  # React Native development
+#     "https://your-app-scheme://",  # Your React Native app scheme
+# ]
+
+CORS_ALLOW_CREDENTIALS = True
+
+CORS_ALLOW_HEADERS = [
+    'accept',
+    'accept-encoding',
+    'authorization',
+    'content-type',
+    'dnt',
+    'origin',
+    'user-agent',
+    'x-csrftoken',
+    'x-requested-with',
+]
