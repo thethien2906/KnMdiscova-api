@@ -63,8 +63,6 @@ INSTALLED_APPS = [
     'children',
     'psychologists',
     'appointments',
-    'paypal_app',
-
 
 ]
 
@@ -181,7 +179,7 @@ EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
 DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
 
 # Frontend URL for email links
-FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8001')
+FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
@@ -215,9 +213,3 @@ CORS_ALLOW_HEADERS = [
     'x-csrftoken',
     'x-requested-with',
 ]
-
-# Payment Configuration
-PAYPAL_CLIENT_ID = os.environ.get('PAYPAL_CLIENT_ID', '')
-PAYPAL_CLIENT_SECRET = os.environ.get('PAYPAL_CLIENT_SECRET', '')
-
-
