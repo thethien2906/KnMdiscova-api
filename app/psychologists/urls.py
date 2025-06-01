@@ -1,24 +1,58 @@
-from django.urls import path
+# psychologists/urls.py
+from django.urls import path, include
+from rest_framework.routers import DefaultRouter
+
 from .views import (
-    PsychologistRegistrationView,
-    PsychologistProfileView,
-    PsychologistSearchView,
-    AvailabilityCreateView,
-    AvailabilityDetailView,
-    AvailabilityListView,
-    AvailabilityBulkView,
-    PsychologistVerificationView,
+    PsychologistProfileViewSet,
+    PsychologistAvailabilityViewSet,
+    PsychologistMarketplaceViewSet,
+    PsychologistManagementViewSet
 )
 
-app_name = 'psychologists'
+# Create router for ViewSets
+router = DefaultRouter()
+router.register('profile', PsychologistProfileViewSet, basename='psychologist-profile')
+router.register('availability', PsychologistAvailabilityViewSet, basename='psychologist-availability')
+router.register('marketplace', PsychologistMarketplaceViewSet, basename='psychologist-marketplace')
+router.register('manage', PsychologistManagementViewSet, basename='psychologist-management')
 
+# URL patterns
 urlpatterns = [
-    path('register/', PsychologistRegistrationView.as_view(), name='register'),
-    path('me/', PsychologistProfileView.as_view(), name='profile'),
-    path('search/', PsychologistSearchView.as_view(), name='search'),
-    path('availability/', AvailabilityCreateView.as_view(), name='availability-create'),
-    path('availability/<int:availability_id>/', AvailabilityDetailView.as_view(), name='availability-detail'),
-    path('availability/list/', AvailabilityListView.as_view(), name='availability-list'),
-    path('availability/bulk/', AvailabilityBulkView.as_view(), name='availability-bulk'),
-    path('<str:psychologist_id>/verify/', PsychologistVerificationView.as_view(), name='verify'),
+    # ViewSet routes (handled by router)
+    path('', include(router.urls)),
 ]
+
+# The resulting URL patterns will be:
+#
+# Psychologist Profile Management (for psychologists):
+# - GET    /api/psychologists/profile/                              -> get current psychologist's profile
+# - POST   /api/psychologists/profile/                              -> create psychologist profile
+# - PATCH  /api/psychologists/profile/                              -> update current psychologist's profile
+# - GET    /api/psychologists/profile/completeness/                 -> get profile completeness & verification status
+# - GET    /api/psychologists/profile/education/                    -> get education entries
+# - PATCH  /api/psychologists/profile/education/                    -> update education entries
+# - GET    /api/psychologists/profile/certifications/               -> get certification entries
+# - PATCH  /api/psychologists/profile/certifications/               -> update certification entries
+#
+# Psychologist Availability Management:
+# - GET    /api/psychologists/availability/my-availability/         -> get current psychologist's availability blocks
+# - POST   /api/psychologists/availability/                         -> create availability block
+# - GET    /api/psychologists/availability/{id}/                    -> get specific availability block
+# - PATCH  /api/psychologists/availability/{id}/                    -> update availability block
+# - DELETE /api/psychologists/availability/{id}/                    -> delete availability block
+# - GET    /api/psychologists/availability/weekly-summary/          -> get weekly availability summary
+# - POST   /api/psychologists/availability/bulk-create/             -> create multiple availability blocks
+# - GET    /api/psychologists/availability/appointment-slots/       -> get available appointment slots
+#
+# Psychologist Marketplace (for parents to browse):
+# - GET    /api/psychologists/marketplace/                          -> list marketplace psychologists
+# - GET    /api/psychologists/marketplace/{id}/                     -> get detailed psychologist profile
+# - POST   /api/psychologists/marketplace/search/                   -> search psychologists
+# - GET    /api/psychologists/marketplace/filter/                   -> filter psychologists by query params
+# - GET    /api/psychologists/marketplace/{id}/availability/        -> get psychologist availability for booking
+#
+# Psychologist Management (admin access):
+# - GET    /api/psychologists/manage/                               -> list all psychologists (admin)
+# - GET    /api/psychologists/manage/{id}/                          -> get detailed psychologist profile (admin)
+# - POST   /api/psychologists/manage/search/                        -> search all psychologists (admin)
+# - GET    /api/psychologists/manage/statistics/                    -> get platform-wide statistics (admin)
