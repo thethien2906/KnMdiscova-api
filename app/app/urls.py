@@ -30,6 +30,10 @@ urlpatterns = [
     path('api/parents/', include('parents.urls')),
     # children
     path('api/children/', include('children.urls')),
+    # psychologists
+    path('api/psychologists/', include('psychologists.urls')),
+    # appointments
+    path('api/appointments/', include('appointments.urls')),
 ]
 
 

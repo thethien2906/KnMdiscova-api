@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/5.1/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.1/ref/settings/
 """
-# app/settings.py
+# app/settings/base.py
 from pathlib import Path
 import os
 import sys
@@ -19,29 +19,32 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).resolve().parent.parent.parent
 
-# SECURITY WARNING: keep the secret key used in production secret!
+# Security
 SECRET_KEY = os.environ.get('SECRET_KEY')
-
-# SECURITY WARNING: don't run with debug turned on in production!
+if not SECRET_KEY:
+    # Only allow empty SECRET_KEY in development/testing
+    if 'test' in sys.argv or 'pytest' in sys.modules:
+        SECRET_KEY = 'django-insecure-fallback-for-testing'
+    elif os.environ.get('DJANGO_SETTINGS_MODULE', '').endswith('development'):
+        SECRET_KEY = 'django-insecure-fallback-for-development'
+    else:
+        raise ValueError("SECRET_KEY environment variable is required")
 DEBUG = os.environ.get('DEBUG', 'False') == 'True'
 
-ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',')
+# Parse ALLOWED_HOSTS from environment variable
+ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS', '')
 
+if ALLOWED_HOSTS_ENV:
+    ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_ENV.split(',') if host.strip()]
+else:
+    ALLOWED_HOSTS = ['*']  # Temporary fallback for debugging
 
-# Quick-start development settings - unsuitable for production
-# See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
-
-
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+print(f"Final ALLOWED_HOSTS: {ALLOWED_HOSTS}")
 
 
 # Application definition
-
 INSTALLED_APPS = [
     'django.contrib.admin',
     'django.contrib.auth',
@@ -49,14 +52,17 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'core',
     'rest_framework',
     'rest_framework.authtoken',
     'drf_spectacular',
     'django_extensions',
+    'corsheaders',  # For handling CORS
+    'core',
     'users',
     'parents',
     'children',
+    'psychologists',
+    'appointments',
 
 ]
 
@@ -68,6 +74,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -92,10 +99,8 @@ TEMPLATES = [
 
 WSGI_APPLICATION = 'app.wsgi.application'
 
-
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
-
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
@@ -106,10 +111,8 @@ DATABASES = {
     }
 }
 
-
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
-
 AUTH_PASSWORD_VALIDATORS = [
     {
         'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator',
@@ -125,27 +128,19 @@ AUTH_PASSWORD_VALIDATORS = [
     },
 ]
 
-
 # Internationalization
 # https://docs.djangoproject.com/en/5.1/topics/i18n/
-
 LANGUAGE_CODE = 'en-us'
-
 TIME_ZONE = 'UTC'
-
 USE_I18N = True
-
 USE_TZ = True
-
 
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.1/howto/static-files/
-
 STATIC_URL = 'static/'
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.1/ref/settings/#default-auto-field
-
 DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
@@ -172,9 +167,7 @@ SPECTACULAR_SETTINGS = {
     'COMPONENT_SPLIT_REQUEST': True,
 }
 
-
 AUTH_USER_MODEL = 'users.User'
-
 
 # Email Configuration
 EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
@@ -187,9 +180,15 @@ DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@k
 
 # Frontend URL for email links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
-
-# In settings.py
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
 
+# CORS settings allowing all origins in development
+CORS_ALLOW_ALL_ORIGINS = DEBUG
+
+
+MVP_PRICING = {
+    'ONLINE_SESSION_RATE': 150.00,      # $150 for 1-hour online session
+    'INITIAL_CONSULTATION_RATE': 280.00  # $280 for 2-hour initial consultation
+}
