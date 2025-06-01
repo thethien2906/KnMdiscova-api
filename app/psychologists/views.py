@@ -29,7 +29,8 @@ from .services import (
     PsychologistNotFoundError,
     PsychologistAccessDeniedError,
     AvailabilityManagementError,
-    PsychologistAvailabilityService
+    PsychologistAvailabilityService,
+
 )
 from .permissions import (
     IsPsychologistOwner,

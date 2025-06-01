@@ -52,11 +52,12 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
-    'core',
     'rest_framework',
     'rest_framework.authtoken',
     'drf_spectacular',
     'django_extensions',
+    'corsheaders',  # For handling CORS
+    'core',
     'users',
     'parents',
     'children',
@@ -73,6 +74,7 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -181,6 +183,9 @@ FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
 SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
 COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
+
+# CORS settings allowing all origins in development
+CORS_ALLOW_ALL_ORIGINS = DEBUG
 
 
 MVP_PRICING = {

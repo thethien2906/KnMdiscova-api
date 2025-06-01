@@ -10,14 +10,15 @@ from .views import (
 
 # Create router for ViewSets
 router = DefaultRouter()
-router.register('', AppointmentViewSet, basename='appointment')  # Main appointment endpoints
 router.register('slots', AppointmentSlotViewSet, basename='appointment-slots')
 router.register('analytics', AppointmentAnalyticsViewSet, basename='appointment-analytics')
+router.register('', AppointmentViewSet, basename='appointment')  # Main appointment endpoints
 
 # URL patterns
 urlpatterns = [
     # ViewSet routes (handled by router)
     path('', include(router.urls)),
+
 ]
 
 # The resulting URL patterns will be:

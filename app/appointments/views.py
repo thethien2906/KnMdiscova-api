@@ -11,6 +11,8 @@ import logging
 from rest_framework.exceptions import PermissionDenied
 from datetime import date, timedelta
 from django.utils import timezone
+from django.db.models import Q
+from django.db import models
 from psychologists.models import PsychologistAvailability
 from .models import Appointment, AppointmentSlot
 from .serializers import (
@@ -891,10 +893,16 @@ class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin)
     def get_permissions(self):
         """Set permissions based on action"""
         if self.action in ['create', 'update', 'destroy', 'generate_slots']:
+            # Only psychologists and admins can manage slots
             permission_classes = [permissions.IsAuthenticated, CanManageSlots]
         elif self.action in ['available_for_booking', 'booking_availability']:
+            # Marketplace users can view booking availability
             permission_classes = [permissions.IsAuthenticated, IsMarketplaceUser]
-        elif self.action in ['list', 'retrieve']:
+        elif self.action in ['list', 'my_slots']:
+            # Basic auth for list actions (filtering in get_queryset)
+            permission_classes = [permissions.IsAuthenticated]
+        elif self.action == 'retrieve':
+            # Use slot-specific permissions for individual access
             permission_classes = [permissions.IsAuthenticated, AppointmentSlotPermissions]
         else:
             permission_classes = [permissions.IsAuthenticated]
@@ -902,36 +910,90 @@ class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin)
         return [permission() for permission in permission_classes]
 
     def get_queryset(self):
-        """Filter queryset based on user permissions"""
+        """Filter queryset based on user permissions and action"""
         queryset = super().get_queryset()
 
-        # Admins can see all slots
-        if self.request.user.is_admin or self.request.user.is_staff:
-            return queryset
 
-        # Psychologists can see their own slots
-        elif self.request.user.user_type == 'Psychologist':
-            try:
-                psychologist = PsychologistService.get_psychologist_by_user(self.request.user)
-                if psychologist:
-                    return queryset.filter(psychologist=psychologist)
-            except Exception:
-                pass
+        # For list actions, apply filtering to show appropriate slots
+        if self.action == 'list':
+            print("Branch: list action")
+            # Admins can see all slots
+            if self.request.user.is_admin or self.request.user.is_staff:
+                print("Returning admin view")
+                return queryset
+
+            # Psychologists can see their own slots
+            elif self.request.user.user_type == 'Psychologist':
+                print("Branch: list - psychologist filtering")
+                try:
+                    psychologist = PsychologistService.get_psychologist_by_user(self.request.user)
+                    if psychologist:
+                        filtered = queryset.filter(psychologist=psychologist)
+                        print(f"Filtered queryset count: {filtered.count()}")
+                        return filtered
+                except Exception as e:
+                    print(f"Exception getting psychologist: {e}")
+                    pass
+                print("Returning empty queryset for psychologist")
+                return queryset.none()
+
+            # Parents can see available slots from marketplace-visible psychologists
+            elif self.request.user.user_type == 'Parent':
+                print("Branch: list - parent filtering")
+                filtered = queryset.filter(
+                    is_booked=False,
+                    slot_date__gte=date.today(),
+                    psychologist__verification_status='Approved',
+                    psychologist__user__is_active=True,
+                    psychologist__user__is_verified=True,
+                ).filter(
+                    models.Q(psychologist__offers_initial_consultation=True) |
+                    models.Q(psychologist__offers_online_sessions=True)
+                )
+                print(f"Parent filtered queryset count: {filtered.count()}")
+                return filtered
+
+            # Default for list: no access
+            print("Branch: list - default no access")
             return queryset.none()
 
-        # Parents can see available slots for marketplace psychologists
-        elif self.request.user.user_type == 'Parent':
-            # Only show available slots from marketplace-visible psychologists
-            return queryset.filter(
+        # For marketplace/booking actions, apply parent filtering
+        elif self.action in ['available_for_booking', 'booking_availability']:
+            print("Branch: marketplace/booking actions")
+            filtered = queryset.filter(
                 is_booked=False,
                 slot_date__gte=date.today(),
                 psychologist__verification_status='Approved',
                 psychologist__user__is_active=True,
-                psychologist__user__is_verified=True
+                psychologist__user__is_verified=True,
+            ).filter(
+                models.Q(psychologist__offers_initial_consultation=True) |
+                models.Q(psychologist__offers_online_sessions=True)
             )
+            print(f"Marketplace filtered queryset count: {filtered.count()}")
+            return filtered
 
-        # Default: no access
-        return queryset.none()
+        # For psychologist-specific actions
+        elif self.action == 'my_slots':
+            print("Branch: my_slots action")
+            if self.request.user.user_type == 'Psychologist':
+                try:
+                    psychologist = PsychologistService.get_psychologist_by_user(self.request.user)
+                    if psychologist:
+                        filtered = queryset.filter(psychologist=psychologist)
+                        print(f"My slots filtered queryset count: {filtered.count()}")
+                        return filtered
+                except Exception as e:
+                    print(f"Exception in my_slots: {e}")
+                    pass
+            print("Returning empty queryset for my_slots")
+            return queryset.none()
+
+        # For detail actions (retrieve, update, destroy), return ALL slots
+        else:
+            print(f"Branch: detail action ({self.action}) - returning full queryset")
+            print(f"Full queryset count: {queryset.count()}")
+            return queryset
 
     def get_current_psychologist(self):
         """Get current user's psychologist profile"""
@@ -1336,8 +1398,15 @@ class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin)
         Delete appointment slot
         DELETE /api/appointments/slots/{id}/
         """
+        # Force set the action if needed
+        if self.action != 'destroy':
+            print(f"WARNING: Action is {self.action}, forcing to 'destroy'")
+            self.action = 'destroy'
+
         try:
+            print("Calling get_object()...")
             slot = self.get_object()
+            print(f"Found slot: {slot.slot_id} - {slot.psychologist.user.email}")
 
             # Check if slot is booked
             if slot.is_booked:
@@ -1349,15 +1418,13 @@ class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin)
             slot.delete()
 
             logger.info(f"Appointment slot deleted: {slot_info} by {request.user.email}")
-            return Response({
-                'message': _('Appointment slot deleted successfully')
-            }, status=status.HTTP_204_NO_CONTENT)
+            return Response(status=status.HTTP_204_NO_CONTENT)
 
         except Exception as e:
-            logger.error(f"Error deleting appointment slot {pk}: {str(e)}")
-            return Response({
-                'error': _('Failed to delete appointment slot')
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            print(f"Exception in destroy: {type(e).__name__}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            raise
 
     @extend_schema(
         parameters=[
@@ -1526,21 +1593,6 @@ class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin)
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-# appointments/views.py
-from rest_framework import status, permissions
-from rest_framework.decorators import action
-from rest_framework.response import Response
-from rest_framework.viewsets import GenericViewSet
-from rest_framework.mixins import ListModelMixin, RetrieveModelMixin
-from django.utils.translation import gettext_lazy as _
-from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
-from drf_spectacular.types import OpenApiTypes
-import logging
-from rest_framework.exceptions import PermissionDenied
-from datetime import date, timedelta
-from django.utils import timezone
-
-from .models import Appointment, AppointmentSlot
 from .serializers import (
     AppointmentSerializer,
     AppointmentCreateSerializer,

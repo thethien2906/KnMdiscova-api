@@ -368,22 +368,51 @@ class AppointmentViewPermissions(permissions.BasePermission):
 
 class AppointmentSlotPermissions(permissions.BasePermission):
     """
-    Composite permission for appointment slot operations
+    Permission for appointment slot access
+    - Admins: Full access
+    - Psychologists: Can view their own slots
+    - Parents: Can view available marketplace slots
     """
-    message = _("You don't have permission to manage appointment slots.")
 
     def has_permission(self, request, view):
-        """
-        Check basic permission for slot operations
-        """
-        return CanManageSlots().has_permission(request, view)
+        """Check if user can access appointment slots"""
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        # All authenticated users can view slots (filtering in queryset)
+        return True
 
     def has_object_permission(self, request, view, obj):
-        """
-        Check object-level permissions for slot operations
-        """
-        return CanManageSlots().has_object_permission(request, view, obj)
+        """Check if user can access specific appointment slot"""
+        if not request.user or not request.user.is_authenticated:
+            return False
 
+        # Admins can access everything
+        if request.user.is_admin or request.user.is_staff:
+            return True
+
+        # Psychologists can access their own slots
+        if request.user.user_type == 'Psychologist':
+            try:
+                from psychologists.services import PsychologistService
+                psychologist = PsychologistService.get_psychologist_by_user(request.user)
+                return obj.psychologist == psychologist
+            except:
+                return False
+
+        # Parents can view available marketplace slots
+        if request.user.user_type == 'Parent':
+            from datetime import date
+            return (
+                not obj.is_booked and
+                obj.slot_date >= date.today() and
+                obj.psychologist.verification_status == 'Approved' and
+                obj.psychologist.user.is_active and
+                obj.psychologist.user.is_verified and
+                (obj.psychologist.offers_initial_consultation or obj.psychologist.offers_online_sessions)
+            )
+
+        return False
 
 class AppointmentAnalyticsPermissions(permissions.BasePermission):
     """
