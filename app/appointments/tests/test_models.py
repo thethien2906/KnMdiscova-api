@@ -406,17 +406,29 @@ class AppointmentModelTest(TestCase):
             password='testpass123',
             user_type='Parent'
         )
+        other_parent_user.is_verified = True
+        other_parent_user.save()
+
         other_parent = Parent.objects.get(user=other_parent_user)
+        other_parent.first_name = 'Other'
+        other_parent.last_name = 'Parent'
+        other_parent.save()
+
+        # Create appointment instance without saving
+        appointment = Appointment(
+            child=self.child,  # Belongs to self.parent
+            psychologist=self.psychologist,
+            parent=other_parent,  # Different parent
+            session_type='OnlineMeeting',
+            scheduled_start_time=self.future_datetime,
+            scheduled_end_time=self.future_datetime + timedelta(hours=1)
+        )
+
+        # Manually set the cache attributes that Django's validation expects
+        appointment._child_cache = self.child
+        appointment._parent_cache = other_parent
 
         with self.assertRaises(ValidationError) as context:
-            appointment = Appointment(
-                child=self.child,  # Belongs to self.parent
-                psychologist=self.psychologist,
-                parent=other_parent,  # Different parent
-                session_type='OnlineMeeting',
-                scheduled_start_time=self.future_datetime,
-                scheduled_end_time=self.future_datetime + timedelta(hours=1)
-            )
             appointment.full_clean()
 
         self.assertIn('child', context.exception.message_dict)
