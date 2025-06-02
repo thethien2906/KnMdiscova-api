@@ -324,6 +324,7 @@ class TestGetParentProfileData(ParentServiceTestCase):
         self.parent.state_province = 'MA'
         self.parent.postal_code = '02101'
         self.parent.country = 'US'
+        self.parent.user.profile_picture_url = 'http://example.com/profile.jpg'
         self.parent.communication_preferences = {'email_notifications': True}
         self.parent.save()
 
@@ -335,6 +336,7 @@ class TestGetParentProfileData(ParentServiceTestCase):
         self.assertEqual(profile_data['user_type'], 'Parent')
         self.assertTrue(profile_data['is_verified'])
         self.assertTrue(profile_data['is_active'])
+        self.assertTrue(profile_data['profile_picture_url'])
 
         # Check profile fields
         self.assertEqual(profile_data['first_name'], 'John')
