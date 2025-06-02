@@ -12,7 +12,6 @@ from functools import wraps
 from .models import User
 from .tokens import token_generator
 from django.conf import settings
-from .mailersend_service import get_email_backend, MailerSendEmailBackend
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -51,7 +50,6 @@ def retry_on_email_failure(max_attempts=3, delay=1):
 class EmailService:
     """
     Centralized email service for all email operations
-    Enhanced to support multiple email backends
     """
 
     @staticmethod
@@ -60,7 +58,7 @@ class EmailService:
         return {
             'site_name': 'K&Mdiscova',
             'site_url': settings.FRONTEND_URL,
-            'support_email': getattr(settings, 'SUPPORT_EMAIL', 'support@kmdiscova.id.vn'),
+            'support_email': getattr(settings, 'SUPPORT_EMAIL', 'support@kmdiscova.com'),
             'company_address': getattr(settings, 'COMPANY_ADDRESS', ''),
         }
 
@@ -70,7 +68,6 @@ class EmailService:
                    recipient_email: str, from_email: str = None) -> bool:
         """
         Send an email using templates with retry mechanism
-        Enhanced to support multiple email backends
 
         Args:
             subject: Email subject
@@ -90,41 +87,22 @@ class EmailService:
             html_content = render_to_string(f'emails/{template_name}.html', full_context)
             text_content = render_to_string(f'emails/{template_name}.txt', full_context)
 
-            # Determine email backend
-            backend_type = getattr(settings, 'EMAIL_BACKEND', 'console')
+            # Create email
+            email = EmailMultiAlternatives(
+                subject=subject,
+                body=text_content,
+                from_email=from_email or settings.DEFAULT_FROM_EMAIL,
+                to=[recipient_email],
+            )
 
-            if backend_type == 'mailersend':
-                # Use MailerSend backend
-                backend = MailerSendEmailBackend(fail_silently=False)
+            # Attach HTML version
+            email.attach_alternative(html_content, "text/html")
 
-                # Create email message
-                email = EmailMultiAlternatives(
-                    subject=subject,
-                    body=text_content,
-                    from_email=from_email or settings.DEFAULT_FROM_EMAIL,
-                    to=[recipient_email],
-                )
-                email.attach_alternative(html_content, "text/html")
+            # Send email
+            email.send(fail_silently=False)
 
-                # Send using MailerSend backend
-                success = backend.send_messages([email]) > 0
-
-            else:
-                # Use traditional Django email backend
-                email = EmailMultiAlternatives(
-                    subject=subject,
-                    body=text_content,
-                    from_email=from_email or settings.DEFAULT_FROM_EMAIL,
-                    to=[recipient_email],
-                )
-                email.attach_alternative(html_content, "text/html")
-                email.send(fail_silently=False)
-                success = True
-
-            if success:
-                logger.info(f"Email sent successfully to {recipient_email} using {backend_type}")
-
-            return success
+            logger.info(f"Email sent successfully to {recipient_email}")
+            return True
 
         except Exception as e:
             logger.error(
