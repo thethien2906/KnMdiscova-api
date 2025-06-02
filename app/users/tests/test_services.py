@@ -66,6 +66,20 @@ class AuthenticationServiceTestCase(TestCase):
 
         self.assertEqual(str(context.exception), "Invalid user type")
 
+    def test_register_user_mvp(self):
+        """Test MVP registration MVP version automatically sets is_verified to True"""
+        user = AuthenticationService.register_user(
+            email=self.email,
+            password=self.password,
+            user_type='Parent'
+        )
+
+        self.assertIsNotNone(user)
+        self.assertEqual(user.email, self.email)
+        self.assertEqual(user.user_type, 'Parent')
+        self.assertTrue(user.check_password(self.password))
+        self.assertTrue(user.is_verified)
+
     @override_settings(
         FRONTEND_URL='http://localhost:3000',
         DEFAULT_FROM_EMAIL='test@kandmdiscova.com'

@@ -143,7 +143,7 @@ class ParentService:
             'user_type': parent.user.user_type,
             'is_verified': parent.user.is_verified,
             'is_active': parent.user.is_active,
-
+            'profile_picture_url': parent.user.profile_picture_url,
             # Profile information
             'first_name': parent.first_name,
             'last_name': parent.last_name,
