@@ -35,6 +35,8 @@ class AppointmentSlotServiceTest(TestCase):
     """Test AppointmentSlotService functionality"""
 
     def setUp(self):
+        print(f"DEBUG: setUp called at {timezone.now()}")
+
         # Create test users
         self.psychologist_user = User.objects.create_user(
             email='psychologist@test.com',
@@ -42,6 +44,7 @@ class AppointmentSlotServiceTest(TestCase):
             user_type='Psychologist',
             is_verified=True
         )
+        print(f"DEBUG: Created psychologist_user: {self.psychologist_user.id}")
 
         # Create psychologist profile
         self.psychologist = Psychologist.objects.create(
@@ -57,6 +60,7 @@ class AppointmentSlotServiceTest(TestCase):
             offers_initial_consultation=True,
             office_address='123 Main St, City, State'
         )
+        print(f"DEBUG: Created psychologist: {self.psychologist.user.id}")
 
         # Create availability block
         self.availability_block = PsychologistAvailability.objects.create(
@@ -66,6 +70,8 @@ class AppointmentSlotServiceTest(TestCase):
             end_time=time(12, 0),
             is_recurring=True
         )
+        print(f"DEBUG: Created availability_block: {self.availability_block.availability_id}")
+        print("DEBUG: setUp completed successfully")
 
     def test_generate_slots_from_recurring_availability(self):
         """Test slot generation from recurring availability block"""
@@ -138,11 +144,20 @@ class AppointmentSlotServiceTest(TestCase):
 
     def test_cleanup_past_slots(self):
         """Test cleanup of past unbooked slots"""
-        # Create slots first, then manipulate their dates to bypass validation
+        import logging
+        logger = logging.getLogger(__name__)
+
+        # Debug: Print current date/time information
         current_date = date.today()
+        current_datetime = timezone.now()
+        print(f"DEBUG: Current date: {current_date}")
+        print(f"DEBUG: Current datetime: {current_datetime}")
+        print(f"DEBUG: Current date type: {type(current_date)}")
 
         # Get the day of week for current date
         current_day_of_week = (current_date.weekday() + 1) % 7
+        print(f"DEBUG: Current day of week (0=Sunday): {current_day_of_week}")
+        print(f"DEBUG: Python weekday(): {current_date.weekday()} (0=Monday)")
 
         # Create an availability block that matches today's day of week
         availability_block = PsychologistAvailability.objects.create(
@@ -152,62 +167,157 @@ class AppointmentSlotServiceTest(TestCase):
             start_time=time(9, 0),
             end_time=time(17, 0)
         )
+        print(f"DEBUG: Created availability block for day {current_day_of_week}")
 
-        # Create slots with current date first (to pass validation)
-        past_slot = AppointmentSlot.objects.create(
-            psychologist=self.psychologist,
-            availability_block=availability_block,
-            slot_date=current_date,
-            start_time=time(9, 0),
-            end_time=time(10, 0),
-            is_booked=False
-        )
+        # Calculate a future date that matches the availability block's day of week
+        # Find the next occurrence of the same day of week
+        days_ahead = current_day_of_week - (current_date.weekday() + 1) % 7
+        if days_ahead <= 0:  # Target day already happened this week
+            days_ahead += 7
+        future_date = current_date + timedelta(days=days_ahead)
 
-        booked_past_slot = AppointmentSlot.objects.create(
-            psychologist=self.psychologist,
-            availability_block=availability_block,
-            slot_date=current_date,
-            start_time=time(10, 0),
-            end_time=time(11, 0),
-            is_booked=True
-        )
+        # Verify the future date matches the availability block day
+        future_day_of_week = (future_date.weekday() + 1) % 7
+        print(f"DEBUG: future_date: {future_date} (day of week: {future_day_of_week})")
+        print(f"DEBUG: availability_block day_of_week: {current_day_of_week}")
+        print(f"DEBUG: Days ahead calculated: {days_ahead}")
 
-        recent_slot = AppointmentSlot.objects.create(
-            psychologist=self.psychologist,
-            availability_block=availability_block,
-            slot_date=current_date,
-            start_time=time(11, 0),
-            end_time=time(12, 0),
-            is_booked=False
-        )
+        # Double-check they match
+        if future_day_of_week != current_day_of_week:
+            print(f"DEBUG: ERROR - Day mismatch! future_day_of_week={future_day_of_week}, expected={current_day_of_week}")
+            # Fallback: use current date if it matches, otherwise find next Monday
+            if (current_date.weekday() + 1) % 7 == current_day_of_week:
+                future_date = current_date + timedelta(days=7)  # Next week same day
+            else:
+                # Find next Monday (day_of_week=1)
+                days_to_monday = (1 - (current_date.weekday() + 1) % 7) % 7
+                if days_to_monday == 0:
+                    days_to_monday = 7
+                future_date = current_date + timedelta(days=days_to_monday)
+            future_day_of_week = (future_date.weekday() + 1) % 7
+            print(f"DEBUG: Corrected future_date: {future_date} (day of week: {future_day_of_week})")
 
-        # Now update the dates directly in the database to bypass validation
-        past_date = date.today() - timedelta(days=10)
-        recent_date = date.today() - timedelta(days=3)
+        print(f"DEBUG: Using future_date for initial creation: {future_date}")
 
-        # Update dates using raw SQL or update() to bypass model validation
-        AppointmentSlot.objects.filter(slot_id=past_slot.slot_id).update(slot_date=past_date)
-        AppointmentSlot.objects.filter(slot_id=booked_past_slot.slot_id).update(slot_date=past_date)
-        AppointmentSlot.objects.filter(slot_id=recent_slot.slot_id).update(slot_date=recent_date)
+        try:
+            # Create slots with future date first (to pass validation)
+            past_slot = AppointmentSlot.objects.create(
+                psychologist=self.psychologist,
+                availability_block=availability_block,
+                slot_date=future_date,  # Use future date initially
+                start_time=time(9, 0),
+                end_time=time(10, 0),
+                is_booked=False
+            )
+            print(f"DEBUG: Created past_slot with ID: {past_slot.slot_id}")
+
+            booked_past_slot = AppointmentSlot.objects.create(
+                psychologist=self.psychologist,
+                availability_block=availability_block,
+                slot_date=future_date,  # Use future date initially
+                start_time=time(10, 0),
+                end_time=time(11, 0),
+                is_booked=True
+            )
+            print(f"DEBUG: Created booked_past_slot with ID: {booked_past_slot.slot_id}")
+
+            recent_slot = AppointmentSlot.objects.create(
+                psychologist=self.psychologist,
+                availability_block=availability_block,
+                slot_date=future_date,  # Use future date initially
+                start_time=time(11, 0),
+                end_time=time(12, 0),
+                is_booked=False
+            )
+            print(f"DEBUG: Created recent_slot with ID: {recent_slot.slot_id}")
+
+        except Exception as e:
+            print(f"DEBUG: Error creating slots: {e}")
+            print(f"DEBUG: Error type: {type(e)}")
+            if hasattr(e, 'message_dict'):
+                print(f"DEBUG: Validation errors: {e.message_dict}")
+            raise
+
+        # Calculate past dates
+        past_date = current_date - timedelta(days=10)
+        recent_date = current_date - timedelta(days=3)
+        print(f"DEBUG: Past date (10 days ago): {past_date}")
+        print(f"DEBUG: Recent date (3 days ago): {recent_date}")
+
+        # Update dates using raw update() to bypass model validation
+        print("DEBUG: Updating slot dates directly in database...")
+
+        past_slot_update_count = AppointmentSlot.objects.filter(
+            slot_id=past_slot.slot_id
+        ).update(slot_date=past_date)
+        print(f"DEBUG: Updated past_slot date, affected rows: {past_slot_update_count}")
+
+        booked_past_slot_update_count = AppointmentSlot.objects.filter(
+            slot_id=booked_past_slot.slot_id
+        ).update(slot_date=past_date)
+        print(f"DEBUG: Updated booked_past_slot date, affected rows: {booked_past_slot_update_count}")
+
+        recent_slot_update_count = AppointmentSlot.objects.filter(
+            slot_id=recent_slot.slot_id
+        ).update(slot_date=recent_date)
+        print(f"DEBUG: Updated recent_slot date, affected rows: {recent_slot_update_count}")
 
         # Refresh instances from database
         past_slot.refresh_from_db()
         booked_past_slot.refresh_from_db()
         recent_slot.refresh_from_db()
 
+        # Debug: Verify the dates were updated correctly
+        print(f"DEBUG: past_slot.slot_date after update: {past_slot.slot_date}")
+        print(f"DEBUG: booked_past_slot.slot_date after update: {booked_past_slot.slot_date}")
+        print(f"DEBUG: recent_slot.slot_date after update: {recent_slot.slot_date}")
+        print(f"DEBUG: past_slot.is_booked: {past_slot.is_booked}")
+        print(f"DEBUG: booked_past_slot.is_booked: {booked_past_slot.is_booked}")
+        print(f"DEBUG: recent_slot.is_booked: {recent_slot.is_booked}")
+
         # Verify our setup is correct
         self.assertEqual(past_slot.slot_date, past_date)
         self.assertEqual(booked_past_slot.slot_date, past_date)
         self.assertEqual(recent_slot.slot_date, recent_date)
+        print("DEBUG: Date assertions passed")
+
+        # Debug: Check what slots exist before cleanup
+        all_slots_before = AppointmentSlot.objects.all()
+        print(f"DEBUG: Total slots before cleanup: {len(all_slots_before)}")
+        for slot in all_slots_before:
+            print(f"DEBUG: Slot {slot.slot_id}: date={slot.slot_date}, booked={slot.is_booked}")
 
         # Test cleanup with days_past=7 (should only delete slots older than 7 days)
-        deleted_count = AppointmentSlotService.cleanup_past_slots(days_past=7)
+        print("DEBUG: Calling cleanup_past_slots with days_past=7...")
+        try:
+            deleted_count = AppointmentSlotService.cleanup_past_slots(days_past=7)
+            print(f"DEBUG: cleanup_past_slots returned: {deleted_count}")
+        except Exception as e:
+            print(f"DEBUG: Error in cleanup_past_slots: {e}")
+            print(f"DEBUG: Error type: {type(e)}")
+            raise
+
+        # Debug: Check what slots exist after cleanup
+        all_slots_after = AppointmentSlot.objects.all()
+        print(f"DEBUG: Total slots after cleanup: {len(all_slots_after)}")
+        for slot in all_slots_after:
+            print(f"DEBUG: Remaining slot {slot.slot_id}: date={slot.slot_date}, booked={slot.is_booked}")
+
+        # Check which specific slots still exist
+        past_slot_exists = AppointmentSlot.objects.filter(slot_id=past_slot.slot_id).exists()
+        booked_past_slot_exists = AppointmentSlot.objects.filter(slot_id=booked_past_slot.slot_id).exists()
+        recent_slot_exists = AppointmentSlot.objects.filter(slot_id=recent_slot.slot_id).exists()
+
+        print(f"DEBUG: past_slot exists: {past_slot_exists}")
+        print(f"DEBUG: booked_past_slot exists: {booked_past_slot_exists}")
+        print(f"DEBUG: recent_slot exists: {recent_slot_exists}")
 
         # Verify results
-        self.assertEqual(deleted_count, 1)  # Only the 10-day-old unbooked slot should be deleted
-        self.assertFalse(AppointmentSlot.objects.filter(slot_id=past_slot.slot_id).exists())
-        self.assertTrue(AppointmentSlot.objects.filter(slot_id=booked_past_slot.slot_id).exists())
-        self.assertTrue(AppointmentSlot.objects.filter(slot_id=recent_slot.slot_id).exists())
+        self.assertEqual(deleted_count, 1, f"Expected 1 deletion, got {deleted_count}")  # Only the 10-day-old unbooked slot should be deleted
+        self.assertFalse(past_slot_exists, "past_slot should have been deleted")
+        self.assertTrue(booked_past_slot_exists, "booked_past_slot should still exist (booked slots shouldn't be deleted)")
+        self.assertTrue(recent_slot_exists, "recent_slot should still exist (only 3 days old)")
+
     def test_prevent_duplicate_slot_generation(self):
         """Test that duplicate slots are not generated"""
         date_from = date.today()

@@ -11,7 +11,7 @@ from functools import wraps
 
 from .models import User
 from .tokens import token_generator
-
+from django.conf import settings
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -164,21 +164,23 @@ class AuthenticationService:
                 user = User.objects.create_parent(
                     email=email,
                     password=password,
+                    is_verified = True,
                     **extra_data
                 )
             else:  # Psychologist
                 user = User.objects.create_psychologist(
                     email=email,
                     password=password,
+                    is_verified = True,
                     **extra_data
                 )
 
             # Send verification email (don't fail registration if email fails)
-            try:
-                AuthenticationService.send_verification_email(user)
-            except Exception as e:
-                logger.error(f"Failed to send verification email for user {user.email}: {str(e)}")
-                # Consider queuing for retry or notifying admin
+            # try:
+            #     AuthenticationService.send_verification_email(user)
+            # except Exception as e:
+            #     logger.error(f"Failed to send verification email for user {user.email}: {str(e)}")
+            #     # Consider queuing for retry or notifying admin
 
             logger.info(f"New {user_type} registered: {user.email}")
             return user

@@ -41,7 +41,13 @@ if ALLOWED_HOSTS_ENV:
 else:
     ALLOWED_HOSTS = ['*']  # Temporary fallback for debugging
 
-print(f"Final ALLOWED_HOSTS: {ALLOWED_HOSTS}")
+# CSRF Configuration
+CSRF_TRUSTED_ORIGINS_ENV = os.environ.get('CSRF_TRUSTED_ORIGINS', '')
+if CSRF_TRUSTED_ORIGINS_ENV:
+    CSRF_TRUSTED_ORIGINS = [origin.strip() for origin in CSRF_TRUSTED_ORIGINS_ENV.split(',') if origin.strip()]
+else:
+    CSRF_TRUSTED_ORIGINS = []
+
 
 
 # Application definition
@@ -67,6 +73,7 @@ INSTALLED_APPS = [
 ]
 
 MIDDLEWARE = [
+    'corsheaders.middleware.CorsMiddleware',  # CORS middleware
     'django.middleware.security.SecurityMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
@@ -74,7 +81,6 @@ MIDDLEWARE = [
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
-    'corsheaders.middleware.CorsMiddleware',  # CORS middleware
 ]
 
 ROOT_URLCONF = 'app.urls'
@@ -170,18 +176,40 @@ SPECTACULAR_SETTINGS = {
 AUTH_USER_MODEL = 'users.User'
 
 # Email Configuration
-EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
-EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
-EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
-EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
-EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
-EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
-DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
+USE_MAILERSEND = os.environ.get('USE_MAILERSEND', 'False') == 'True'
+
+if USE_MAILERSEND:
+    # MailerSend Configuration
+    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+    EMAIL_HOST = os.environ.get('MAILERSEND_SMTP_HOST', 'smtp.mailersend.net')
+    EMAIL_PORT = int(os.environ.get('MAILERSEND_SMTP_PORT', 587))
+    EMAIL_USE_TLS = True
+    EMAIL_HOST_USER = os.environ.get('MAILERSEND_SMTP_USERNAME', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('MAILERSEND_API_KEY', '')
+    DEFAULT_FROM_EMAIL = os.environ.get('MAILERSEND_SMTP_USERNAME', 'noreply@kmdiscova.id.vn')
+
+    # MailerSend specific settings
+    MAILERSEND_SMTP_HOST = EMAIL_HOST
+    MAILERSEND_SMTP_PORT = EMAIL_PORT
+    MAILERSEND_SMTP_USERNAME = EMAIL_HOST_USER
+    MAILERSEND_SMTP_PASSWORD = EMAIL_HOST_PASSWORD
+    # MAILERSEND_API_KEY = EMAIL_HOST_PASSWORD
+else:
+    # Keep your existing email configuration
+    EMAIL_BACKEND = os.environ.get('EMAIL_BACKEND', 'django.core.mail.backends.console.EmailBackend')
+    EMAIL_HOST = os.environ.get('EMAIL_HOST', '')
+    EMAIL_PORT = int(os.environ.get('EMAIL_PORT', 587))
+    EMAIL_USE_TLS = os.environ.get('EMAIL_USE_TLS', 'True') == 'True'
+    EMAIL_HOST_USER = os.environ.get('EMAIL_HOST_USER', '')
+    EMAIL_HOST_PASSWORD = os.environ.get('EMAIL_HOST_PASSWORD', '')
+    DEFAULT_FROM_EMAIL = os.environ.get('DEFAULT_FROM_EMAIL', 'K&Mdiscova <noreply@kmdiscova.com>')
 
 # Frontend URL for email links
 FRONTEND_URL = os.environ.get('FRONTEND_URL', 'http://127.0.0.1:8000')
-SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.com')
-COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', '')
+
+COMPANY_ADDRESS = os.environ.get('COMPANY_ADDRESS', 'K&Mdiscova - Personalized Child Development Platform')
+SUPPORT_EMAIL = os.environ.get('SUPPORT_EMAIL', 'support@kmdiscova.id.vn')
+
 EMAIL_VERIFICATION_TIMEOUT_DAYS = 3
 
 
@@ -192,15 +220,8 @@ MVP_PRICING = {
 
 
 # CORS settings for React Native
-CORS_ALLOW_ALL_ORIGINS = True  # For development
-
-# For production, use specific origins:
-# CORS_ALLOWED_ORIGINS = [
-#     "http://localhost:3000",  # React Native development
-#     "https://your-app-scheme://",  # Your React Native app scheme
-# ]
-
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = os.environ.get('CORS_ALLOW_ALL_ORIGINS', 'True') == 'True'
+CORS_ALLOW_CREDENTIALS = os.environ.get('CORS_ALLOW_CREDENTIALS', 'True') == 'True'
 
 CORS_ALLOW_HEADERS = [
     'accept',
