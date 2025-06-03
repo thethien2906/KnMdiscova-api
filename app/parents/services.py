@@ -50,7 +50,7 @@ class ParentService:
     @staticmethod
     def update_parent_profile(parent: Parent, update_data: Dict[str, Any]) -> Parent:
         """
-        Update parent profile with business logic validation
+        Update parent profile and related user fields with business logic validation
         """
         # Validate that user is actually a parent
         if not parent.user.is_parent:
@@ -62,12 +62,32 @@ class ParentService:
 
         try:
             with transaction.atomic():
+                # Handle user fields
+                user_fields = {}
+                user_allowed_fields = ['profile_picture_url', 'user_timezone']
+
+                for field in user_allowed_fields:
+                    if field in update_data:
+                        user_fields[field] = update_data.pop(field)
+
+                # Update user fields if any
+                if user_fields:
+                    updated_user_fields = []
+                    for field, value in user_fields.items():
+                        setattr(parent.user, field, value)
+                        updated_user_fields.append(field)
+
+                    if updated_user_fields:
+                        updated_user_fields.append('updated_at')
+                        parent.user.save(update_fields=updated_user_fields)
+                        logger.info(f"Updated user fields for {parent.user.email}: {updated_user_fields}")
+
                 # Handle communication preferences specially
                 if 'communication_preferences' in update_data:
                     prefs = update_data.pop('communication_preferences')
                     ParentService._update_communication_preferences(parent, prefs)
 
-                # Update other fields
+                # Update other parent fields
                 updated_fields = []
                 allowed_fields = [
                     'first_name', 'last_name', 'phone_number',

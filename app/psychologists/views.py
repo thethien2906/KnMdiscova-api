@@ -200,11 +200,12 @@ class PsychologistProfileViewSet(GenericViewSet):
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
         """
-        Update current psychologist's profile
+        Update current psychologist's profile (both User and Psychologist data)
         PATCH /api/psychologists/profile/
         """
         try:
             psychologist = self.get_current_psychologist()
+            user = psychologist.user
 
             # Validate user can update profile
             if not request.user.is_verified:
@@ -212,30 +213,58 @@ class PsychologistProfileViewSet(GenericViewSet):
                     'error': _('Email must be verified before updating profile')
                 }, status=status.HTTP_403_FORBIDDEN)
 
-            serializer = self.get_serializer(psychologist, data=request.data, partial=True)
+            # Separate user fields from psychologist fields
+            user_fields = {}
+            psychologist_fields = {}
 
-            if serializer.is_valid():
+            # Define which fields belong to User model
+            user_updateable_fields = ['profile_picture_url', 'user_timezone']
+
+            for field, value in request.data.items():
+                if field in user_updateable_fields:
+                    user_fields[field] = value
+                else:
+                    psychologist_fields[field] = value
+
+            # Update User model if there are user fields
+            if user_fields:
                 try:
-                    # Update profile using service
-                    updated_psychologist = PsychologistService.update_psychologist_profile(
-                        psychologist, serializer.validated_data
-                    )
-
-                    # Return updated profile data
-                    profile_data = PsychologistService.get_psychologist_profile_data(updated_psychologist)
-
-                    logger.info(f"Psychologist profile updated by: {request.user.email}")
+                    from users.services import UserService
+                    UserService.update_user_profile(user, **user_fields)
+                    logger.info(f"User profile updated for psychologist: {request.user.email}")
+                except Exception as e:
+                    logger.error(f"Failed to update user profile for {request.user.email}: {str(e)}")
                     return Response({
-                        'message': _('Profile updated successfully'),
-                        'profile': profile_data
-                    }, status=status.HTTP_200_OK)
-
-                except PsychologistProfileError as e:
-                    return Response({
-                        'error': str(e)
+                        'error': _('Failed to update user profile')
                     }, status=status.HTTP_400_BAD_REQUEST)
 
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            # Update Psychologist model if there are psychologist fields
+            if psychologist_fields:
+                serializer = self.get_serializer(psychologist, data=psychologist_fields, partial=True)
+
+                if serializer.is_valid():
+                    try:
+                        # Update profile using service
+                        updated_psychologist = PsychologistService.update_psychologist_profile(
+                            psychologist, serializer.validated_data
+                        )
+                        logger.info(f"Psychologist profile updated by: {request.user.email}")
+
+                    except PsychologistProfileError as e:
+                        return Response({
+                            'error': str(e)
+                        }, status=status.HTTP_400_BAD_REQUEST)
+                else:
+                    return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            # Return updated profile data (refresh from DB to get latest changes)
+            refreshed_psychologist = self.get_current_psychologist()
+            profile_data = PsychologistService.get_psychologist_profile_data(refreshed_psychologist)
+
+            return Response({
+                'message': _('Profile updated successfully'),
+                'profile': profile_data
+            }, status=status.HTTP_200_OK)
 
         except PsychologistProfileError as e:
             return Response({

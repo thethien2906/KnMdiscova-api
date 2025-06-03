@@ -20,6 +20,8 @@ class PsychologistSerializer(serializers.ModelSerializer):
     user_type = serializers.CharField(source='user.user_type', read_only=True)
     is_user_verified = serializers.BooleanField(source='user.is_verified', read_only=True)
     is_user_active = serializers.BooleanField(source='user.is_active', read_only=True)
+    profile_picture_url = serializers.URLField(source='user.profile_picture_url', read_only=True)  # Add this
+
 
     # Computed fields
     full_name = serializers.CharField(read_only=True)
@@ -37,6 +39,7 @@ class PsychologistSerializer(serializers.ModelSerializer):
             'user_type',
             'is_user_verified',
             'is_user_active',
+            'profile_picture_url',  # Include profile picture URL
 
             # Basic profile fields
             'first_name',
@@ -85,6 +88,7 @@ class PsychologistSerializer(serializers.ModelSerializer):
             'user_type',
             'is_user_verified',
             'is_user_active',
+            'profile_picture_url',
             'full_name',
             'display_name',
             'is_verified',
@@ -193,20 +197,31 @@ class PsychologistSerializer(serializers.ModelSerializer):
             })
 
         return attrs
-
+    # MPV: fixed pricing for all psychologists
+    pricing = serializers.SerializerMethodField()
+    def get_pricing(self, obj):
+        """Get MVP fixed pricing for marketplace display"""
+        from .pricing import MVPPricingService
+        return MVPPricingService.get_psychologist_rates(obj)
 
 class PsychologistProfileUpdateSerializer(serializers.ModelSerializer):
     """
     Serializer for psychologists to update their own profiles
     Excludes verification status and admin notes (only admins can edit these)
     """
-
+    profile_picture_url = serializers.URLField(
+        source='user.profile_picture_url',
+        allow_blank=True,
+        required=False,
+        help_text=_("Optional profile picture URL")
+    )
     class Meta:
         model = Psychologist
         fields = [
             # Basic profile fields
             'first_name',
             'last_name',
+            'profile_picture_url',  # Optional profile picture upload
             'license_number',
             'license_issuing_authority',
             'license_expiry_date',
@@ -357,12 +372,15 @@ class PsychologistMarketplaceSerializer(serializers.ModelSerializer):
     services_offered = serializers.ListField(read_only=True)
     profile_completeness = serializers.SerializerMethodField()
     pricing = serializers.SerializerMethodField() # Optional pricing details
+    profile_picture_url = serializers.URLField(source='user.profile_picture_url', read_only=True)
+
     class Meta:
         model = Psychologist
         fields = [
             # Basic public information
             'user',  # For linking/identification
             'full_name',
+            'profile_picture_url',
             'years_of_experience',
             'biography',
 
@@ -735,19 +753,23 @@ class PsychologistSummarySerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     services_offered = serializers.ListField(read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
-
+    profile_picture_url = serializers.URLField(source='user.profile_picture_url', read_only=True)
+    # MVP pricing
+    pricing = serializers.SerializerMethodField()
     class Meta:
         model = Psychologist
         fields = [
             'user',
             'email',
             'full_name',
+            'profile_picture_url',  # Include profile picture URL
             'years_of_experience',
             'verification_status',
             'offers_initial_consultation',
             'offers_online_sessions',
             'services_offered',
             'office_address',
+            'pricing',  # MVP pricing
             'created_at',
         ]
         read_only_fields = [

@@ -30,6 +30,7 @@ CSRF_TRUSTED_ORIGINS = [
     'https://www.kmdiscova.id.vn',
     'http://localhost',
     'http://127.0.0.1',
+    'http://localhost:8081',
     f'http://{os.environ.get("ALLOWED_HOSTS", "").split(",")[0]}' if os.environ.get("ALLOWED_HOSTS") else '',
 ]
 
@@ -45,6 +46,8 @@ CORS_ALLOWED_ORIGINS = [
     'https://www.kmdiscova.id.vn',
     'http://localhost:3000',
     'http://127.0.0.1:3000',
+    'http://localhost:8081',
+
 ]
 
 CORS_ALLOW_CREDENTIALS = True
