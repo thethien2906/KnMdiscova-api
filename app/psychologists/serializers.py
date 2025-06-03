@@ -67,7 +67,8 @@ class PsychologistSerializer(serializers.ModelSerializer):
             'website_url',
             'linkedin_url',
 
-            # Pricing (MVP: Optional)
+            # Pricing (MVP Version)
+            'pricing',
             'hourly_rate',
             'initial_consultation_rate',
 
@@ -779,7 +780,10 @@ class PsychologistSummarySerializer(serializers.ModelSerializer):
             'services_offered',
             'created_at',
         ]
-
+    def get_pricing(self, obj):
+        """Get MVP fixed pricing for marketplace display"""
+        from .pricing import MVPPricingService
+        return MVPPricingService.get_psychologist_rates(obj)
 
 class EducationEntrySerializer(serializers.Serializer):
     """
