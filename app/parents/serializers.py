@@ -17,6 +17,7 @@ class ParentSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
     user_type = serializers.CharField(source='user.user_type', read_only=True)
     is_verified = serializers.BooleanField(source='user.is_verified', read_only=True)
+    profile_picture_url = serializers.URLField(source='user.profile_picture_url', read_only=True)
 
     # Computed fields
     full_name = serializers.CharField(read_only=True)
@@ -30,7 +31,7 @@ class ParentSerializer(serializers.ModelSerializer):
             'email',
             'user_type',
             'is_verified',
-
+            'profile_picture_url',
             # Parent profile fields
             'first_name',
             'last_name',
@@ -56,6 +57,7 @@ class ParentSerializer(serializers.ModelSerializer):
             'email',
             'user_type',
             'is_verified',
+
             'full_name',
             'display_name',
             'full_address',
@@ -119,10 +121,12 @@ class ParentProfileUpdateSerializer(serializers.ModelSerializer):
     """
     Serializer for updating parent profile (excludes sensitive fields)
     """
+    profile_picture_url = serializers.URLField(required=False, allow_blank=True)
 
     class Meta:
         model = Parent
         fields = [
+            'profile_picture_url',
             'first_name',
             'last_name',
             'phone_number',
@@ -174,6 +178,7 @@ class ParentSummarySerializer(serializers.ModelSerializer):
     full_name = serializers.CharField(read_only=True)
     display_name = serializers.CharField(read_only=True)
     email = serializers.EmailField(source='user.email', read_only=True)
+    profile_picture_url = serializers.URLField(source='user.profile_picture_url', read_only=True)
 
     class Meta:
         model = Parent
@@ -185,6 +190,7 @@ class ParentSummarySerializer(serializers.ModelSerializer):
             'city',
             'state_province',
             'country',
+            'profile_picture_url',
         ]
         read_only_fields = ['user', 'email', 'full_name', 'display_name']
 

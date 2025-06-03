@@ -233,7 +233,7 @@ class ParentSummarySerializerTest(TestCase):
 
         expected_fields = [
             'user', 'email', 'full_name', 'display_name',
-            'city', 'state_province', 'country'
+            'city', 'state_province', 'country', 'profile_picture_url',
         ]
         self.assertEqual(set(data.keys()), set(expected_fields))
 

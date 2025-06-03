@@ -76,7 +76,9 @@ class ParentProfileViewSetTestCase(APITestCase):
         url = reverse('parent-profile-profile')
 
         response = self.client.get(url)
-
+        # debug response.content
+        if response.status_code == status.HTTP_200_OK:
+            print(f"Response data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
 
@@ -129,11 +131,13 @@ class ParentProfileViewSetTestCase(APITestCase):
             'last_name': 'Smith',
             'phone_number': '+9876543210',
             'city': 'New City',
-            'state_province': 'New State'
+            'state_province': 'New State',
+            'profile_picture_url': 'http://example.com/new_picture.jpg'
         }
 
         response = self.client.patch(url, update_data, format='json')
-
+        if response.status_code == status.HTTP_200_OK:
+            print(f"Response data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         data = response.json()
 

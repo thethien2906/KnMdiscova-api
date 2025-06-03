@@ -164,6 +164,7 @@ class PsychologistService:
             'user_type': psychologist.user.user_type,
             'is_user_verified': psychologist.user.is_verified,
             'is_user_active': psychologist.user.is_active,
+            'profile_picture_url': psychologist.user.profile_picture_url,
 
             # Profile information
             'first_name': psychologist.first_name,

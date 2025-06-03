@@ -164,12 +164,15 @@ class PsychologistProfileViewSetTests(APITestCase):
 
         update_data = {
             'biography': 'Updated biography',
-            'years_of_experience': 10
+            'years_of_experience': 10,
+            'profile_picture_url': "http://example.com/new_picture.jpg",  # Example URL
         }
 
         url = reverse('psychologist-profile-update-profile')
         response = self.client.patch(url, update_data, format='json')
-
+        # Debug output
+        if response.status_code == status.HTTP_200_OK:
+            print(f"Response data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIn('Profile updated successfully', response.data['message'])
 
@@ -585,7 +588,9 @@ class PsychologistMarketplaceViewSetTests(APITestCase):
 
         url = reverse('psychologist-marketplace-list')
         response = self.client.get(url)
-
+        # print out the response data for debugging
+        if response.status_code == status.HTTP_200_OK:
+            print(f"Response data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(len(response.data['results']), 1)  # Only approved psychologist
         self.assertEqual(response.data['results'][0]['full_name'], 'Dr. Test Psychologist')
