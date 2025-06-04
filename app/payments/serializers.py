@@ -1,3 +1,4 @@
+# payments/serializers.py
 from rest_framework import serializers
 from django.utils.translation import gettext_lazy as _
 from decimal import Decimal
@@ -75,7 +76,6 @@ class PaymentSerializer(serializers.ModelSerializer):
     is_successful = serializers.BooleanField(read_only=True)
     can_be_refunded = serializers.BooleanField(read_only=True)
     remaining_refundable_amount = serializers.DecimalField(
-        source='remaining_refundable_amount',
         max_digits=10,
         decimal_places=2,
         read_only=True

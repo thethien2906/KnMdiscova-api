@@ -1,3 +1,4 @@
+# payments/providers/stripe_provider.py
 import stripe
 from typing import Dict, Any, Optional, List
 from decimal import Decimal
