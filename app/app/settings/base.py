@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 import sys
 from dotenv import load_dotenv
-
+from decimal import Decimal
 # Load environment variables
 load_dotenv()
 
