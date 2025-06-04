@@ -4,11 +4,18 @@ from .base import *
 DEBUG = False
 
 # Parse ALLOWED_HOSTS from environment variable
-ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS', '')
-if ALLOWED_HOSTS_ENV:
-    ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_ENV.split(',') if host.strip()]
-else:
-    ALLOWED_HOSTS = ['kmdiscova.id.vn', 'www.kmdiscova.id.vn']
+# ALLOWED_HOSTS_ENV = os.environ.get('ALLOWED_HOSTS', '')
+# if ALLOWED_HOSTS_ENV:
+#     ALLOWED_HOSTS = [host.strip() for host in ALLOWED_HOSTS_ENV.split(',') if host.strip()]
+# else:
+#     ALLOWED_HOSTS = ['kmdiscova.id.vn', 'www.kmdiscova.id.vn']
+# Add these settings for better proxy handling
+USE_X_FORWARDED_HOST = True
+USE_X_FORWARDED_PORT = True
+SECURE_PROXY_SSL_HEADER = ('HTTP_X_FORWARDED_PROTO', 'https')
+
+# Ensure proper host handling
+ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', '').split(',') + ['kmdiscova-api-prod']
 
 # Production database with SSL
 DATABASES['default'].update({
