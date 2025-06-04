@@ -14,13 +14,11 @@ services:
       - media_volume:/app/media
     command: >
       sh -c "python manage.py wait_for_db &&
-             python manage.py migrate --noinput &&
+             python manage.py migrate &&
              python manage.py collectstatic --noinput &&
-             # The createsuperuser command can be problematic in automated deployments.
-             # Consider creating users via initial data fixtures or management commands
-             # that check for existing users.
              python manage.py createsuperuser --noinput --email admin@kmdiscova.com --user_type Admin || true &&
              gunicorn app.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
+
     environment:
       - DJANGO_SUPERUSER_PASSWORD=admin123456
       - HTTPS_ENABLED=True
@@ -29,12 +27,6 @@ services:
     restart: unless-stopped
     networks:
       - kmdiscova-network
-    healthcheck: # ADD THIS HEALTHCHECK
-      test: ["CMD", "curl", "-f", "http://localhost:8000/health/"] # Assuming you have a /health/ endpoint
-      interval: 30s
-      timeout: 10s
-      retries: 5
-      start_period: 20s # Give it some time to start up before checking
 
   nginx:
     image: nginx:alpine
@@ -49,8 +41,7 @@ services:
       - /etc/letsencrypt:/etc/letsencrypt:ro
       - /var/www/certbot:/var/www/certbot
     depends_on:
-      app:
-        condition: service_healthy # CHANGE DEPENDS_ON TO USE HEALTHCHECK
+      - app
     restart: unless-stopped
     networks:
       - kmdiscova-network
@@ -64,7 +55,8 @@ services:
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     restart: unless-stopped
     networks:
-      - kmdiscova-network # This was fixed, good!
+      - kmdiscova-network
+
 
 networks:
   kmdiscova-network:
