@@ -7,22 +7,17 @@ services:
       args:
         - DEV=false
     container_name: kmdiscova-api-prod
-    ports:
-      - "8000:8000"
+    expose:
+      - "8000"
     volumes:
       - static_volume:/app/staticfiles
       - media_volume:/app/media
-    command: >
-      sh -c "python manage.py wait_for_db &&
-             python manage.py migrate &&
-             python manage.py collectstatic --noinput &&
-             python manage.py createsuperuser --noinput --email admin@kmdiscova.com || true &&
-             gunicorn app.wsgi:application --bind 0.0.0.0:8000 --workers 3 --timeout 120"
-    env_file:
-      - .env.prod
+    # Use the entrypoint script instead of complex command
     environment:
       - DJANGO_SUPERUSER_PASSWORD=admin123456
       - HTTPS_ENABLED=True
+    env_file:
+      - .env.prod
     restart: unless-stopped
     networks:
       - kmdiscova-network
@@ -45,14 +40,12 @@ services:
     networks:
       - kmdiscova-network
 
-  # Certbot for certificate renewal
   certbot:
     image: certbot/certbot
     container_name: kmdiscova-certbot
     volumes:
       - /etc/letsencrypt:/etc/letsencrypt
       - /var/www/certbot:/var/www/certbot
-    # Fixed command - remove the problematic part
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
     restart: unless-stopped
 
