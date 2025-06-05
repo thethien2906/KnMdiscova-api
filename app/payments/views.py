@@ -35,7 +35,8 @@ from .services import (
     OrderCreationError,
     PaymentProcessingError,
     RefundError,
-    WebhookService
+    WebhookService,
+    OrderService
 )
 # Permissions will be handled with basic Django permissions for now
 
@@ -127,6 +128,7 @@ class OrderViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
         """
         try:
             serializer = self.get_serializer(data=request.data)
+            OrderService.cleanup_expired_orders(user=request.user)
 
             if serializer.is_valid():
                 try:

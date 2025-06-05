@@ -132,7 +132,25 @@ class OrderService:
     """
     Service for managing payment orders
     """
+    @staticmethod
+    def cleanup_expired_orders(user=None):
+        """Clean up expired orders automatically"""
+        from django.utils import timezone
 
+        expired_orders = Order.objects.filter(
+            status='pending',
+            expires_at__lt=timezone.now()
+        )
+
+        if user:
+            expired_orders = expired_orders.filter(user=user)
+
+        cancelled_count = 0
+        for order in expired_orders:
+            if OrderService.cancel_order(order, "Auto-cancelled: Order expired"):
+                cancelled_count += 1
+
+        return cancelled_count
     @staticmethod
     def create_psychologist_registration_order(
         psychologist: Psychologist,
@@ -153,6 +171,7 @@ class OrderService:
         Raises:
             OrderCreationError: If order creation fails
         """
+
         try:
             with transaction.atomic():
                 # Get service price
@@ -308,18 +327,12 @@ class OrderService:
     @staticmethod
     def cancel_order(order: Order, reason: str = "Cancelled by user") -> bool:
         """
-        Cancel an order
-
-        Args:
-            order: Order instance
-            reason: Cancellation reason
-
-        Returns:
-            True if cancelled successfully
+        Cancel an order with improved error handling
         """
         try:
             with transaction.atomic():
                 if order.status != 'pending':
+                    logger.warning(f"Cannot cancel order {order.order_id} with status: {order.status}")
                     raise PaymentServiceError(f"Cannot cancel order with status: {order.status}")
 
                 # Update order status
@@ -327,21 +340,28 @@ class OrderService:
                 order.status = 'cancelled'
                 order.save(update_fields=['status', 'updated_at'])
 
-                # Create transaction record
-                Transaction.create_transaction(
-                    order=order,
-                    transaction_type='status_change',
-                    description=f"Order cancelled: {reason}",
-                    previous_status=old_status,
-                    new_status='cancelled',
-                    metadata={'cancellation_reason': reason}
-                )
+                # Create transaction record with error handling
+                try:
+                    Transaction.create_transaction(
+                        order=order,
+                        transaction_type='status_change',
+                        description=f"Order cancelled: {reason}",
+                        previous_status=old_status,
+                        new_status='cancelled',
+                        metadata={'cancellation_reason': reason}
+                    )
+                except Exception as transaction_error:
+                    logger.error(f"Failed to create transaction record for order {order.order_id}: {str(transaction_error)}")
+                    # Continue anyway - the order status is already updated
+                    pass
 
                 logger.info(f"Cancelled order {order.order_id}: {reason}")
                 return True
 
         except Exception as e:
             logger.error(f"Failed to cancel order {order.order_id}: {str(e)}")
+            import traceback
+            logger.error(f"Cancel order traceback: {traceback.format_exc()}")
             return False
 
     @staticmethod
