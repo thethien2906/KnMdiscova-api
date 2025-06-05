@@ -164,15 +164,33 @@ class StripePaymentProvider(BasePaymentProvider):
 
             our_status = status_mapping.get(payment_intent.status, 'processing')
 
-            # Get payment method details if available
+            # Get payment method details if available - FIX THE ERROR HERE
             payment_method_info = {}
-            if payment_intent.charges and payment_intent.charges.data:
-                charge = payment_intent.charges.data[0]
-                if charge.payment_method_details:
-                    payment_method_info = {
-                        'payment_method_type': charge.payment_method_details.type,
-                        'payment_method_details': charge.payment_method_details.to_dict_recursive()
-                    }
+            try:
+                # Safe access to charges
+                if (hasattr(payment_intent, 'charges') and
+                    payment_intent.charges and
+                    hasattr(payment_intent.charges, 'data') and
+                    payment_intent.charges.data):
+
+                    charge = payment_intent.charges.data[0]
+                    if hasattr(charge, 'payment_method_details') and charge.payment_method_details:
+                        payment_method_info = {
+                            'payment_method_type': charge.payment_method_details.type,
+                            'payment_method_details': charge.payment_method_details.to_dict_recursive()
+                        }
+                elif hasattr(payment_intent, 'latest_charge') and payment_intent.latest_charge:
+                    # Alternative: use latest_charge if charges collection is not available
+                    charge = stripe.Charge.retrieve(payment_intent.latest_charge)
+                    if hasattr(charge, 'payment_method_details') and charge.payment_method_details:
+                        payment_method_info = {
+                            'payment_method_type': charge.payment_method_details.type,
+                            'payment_method_details': charge.payment_method_details.to_dict_recursive()
+                        }
+            except Exception as charge_error:
+                # Log the error but don't fail the whole confirmation
+                logger.warning(f"Could not retrieve charge details for payment intent {payment_intent_id}: {str(charge_error)}")
+                payment_method_info = {}
 
             self.log_provider_interaction('confirm_payment', {
                 'payment_intent_id': payment_intent_id,
