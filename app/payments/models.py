@@ -236,8 +236,8 @@ class Order(models.Model):
                     errors['appointment'] = _("Appointment must belong to the specified psychologist")
 
         # Validate expiry date
-        if self.expires_at and self.expires_at <= timezone.now():
-            errors['expires_at'] = _("Expiry date must be in the future")
+        # if self.expires_at and self.expires_at <= timezone.now():
+        #     errors['expires_at'] = _("Expiry date must be in the future")
 
         # Validate paid_at timestamp
         if self.paid_at and self.status != 'paid':

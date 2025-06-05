@@ -6,6 +6,8 @@ services:
         - DEV=true
     environment:
       - DJANGO_SETTINGS_MODULE=app.settings.development
+    env_file:
+      - .env
     depends_on:
       - db
     volumes:
