@@ -28,7 +28,8 @@ from .serializers import (
     RefundPaymentSerializer,
     PricingSerializer,
     PaymentStatusSerializer,
-    WebhookEventSerializer
+    WebhookEventSerializer,
+    CreateAppointmentOrderWithReservationSerializer
 )
 from .services import (
     PaymentServiceError,
@@ -283,6 +284,65 @@ class OrderViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
         description="Cancel a pending order",
         tags=['Payment Orders']
     )
+    @extend_schema(
+        request=CreateAppointmentOrderWithReservationSerializer,
+        responses={
+            201: {
+                'description': 'Appointment order created with slot reservation',
+                'example': {
+                    'message': 'Appointment order created successfully with slot reservation',
+                    'order': {
+                        'order_id': 'uuid',
+                        'amount': '150.00',
+                        'currency': 'USD',
+                        'status': 'pending',
+                        'reserved_slots_count': 2
+                    }
+                }
+            },
+            400: {'description': 'Invalid booking data or slots not available'}
+        },
+        description="Create appointment booking order with slot reservation",
+        tags=['Payment Orders']
+    )
+    @action(detail=False, methods=['post'])
+    def create_appointment_order_with_reservation(self, request):
+        """
+        Create appointment booking order with slot reservation
+        POST /api/payments/orders/create-appointment-order-with-reservation/
+        """
+        try:
+            serializer = CreateAppointmentOrderWithReservationSerializer(
+                data=request.data,
+                context={'request': request}
+            )
+
+            if serializer.is_valid():
+                try:
+                    order = serializer.save()
+
+                    # Return created order data
+                    order_serializer = OrderSerializer(order)
+
+                    logger.info(f"Appointment order with reservation created: {order.order_id} for user {request.user.email}")
+                    return Response({
+                        'message': _('Appointment order created successfully with slot reservation'),
+                        'order': order_serializer.data,
+                        'reserved_slots_count': len(order.metadata.get('reserved_slot_ids', []))
+                    }, status=status.HTTP_201_CREATED)
+
+                except OrderCreationError as e:
+                    return Response({
+                        'error': str(e)
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Unexpected error creating appointment order with reservation for {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to create appointment order')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
     @action(detail=True, methods=['post'])
     def cancel(self, request, pk=None):
         """

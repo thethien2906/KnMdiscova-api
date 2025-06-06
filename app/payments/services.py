@@ -12,6 +12,7 @@ import uuid
 from .models import Order, Payment, Transaction
 from .providers import get_payment_provider, get_default_payment_provider, PaymentProviderConfigError
 from users.models import User
+from children.models import Child
 from psychologists.models import Psychologist
 # from appointments.models import Appointment  # Will be imported when appointments app is ready
 
@@ -299,6 +300,112 @@ class OrderService:
             raise OrderCreationError(f"Failed to create appointment order: {str(e)}")
 
     @staticmethod
+    def create_appointment_booking_order_with_reservation(
+        user: User,
+        child: Child,
+        psychologist: Psychologist,
+        session_type: str,
+        start_slot_id: int,
+        parent_notes: str = '',
+        currency: str = 'USD',
+        provider_name: str = 'stripe'
+    ) -> Order:
+        """
+        Create appointment booking order WITH slot reservation
+        Combines order creation with slot reservation in atomic transaction
+        """
+        try:
+            with transaction.atomic():
+                # Import the reservation service
+                from appointments.services.reservation_service import SlotReservationService, SlotReservationError
+
+                # Validate business rules first
+                if not user.is_parent:
+                    raise OrderCreationError("Only parents can book appointments")
+
+                if not user.is_verified:
+                    raise OrderCreationError("Parent account must be verified")
+
+                # Validate child belongs to parent
+                if not hasattr(user, 'parent_profile') or child.parent != user.parent_profile:
+                    raise OrderCreationError("Child must belong to the booking parent")
+
+                # Validate psychologist offers the service
+                if session_type == 'OnlineMeeting' and not psychologist.offers_online_sessions:
+                    raise OrderCreationError("Psychologist does not offer online sessions")
+
+                if session_type == 'InitialConsultation' and not psychologist.offers_initial_consultation:
+                    raise OrderCreationError("Psychologist does not offer initial consultations")
+
+                if not psychologist.is_marketplace_visible:
+                    raise OrderCreationError("Psychologist is not available for booking")
+
+                # Reserve slots FIRST (this will validate availability)
+                try:
+                    reserved_slots = SlotReservationService.reserve_slots_for_appointment(
+                        psychologist=psychologist,
+                        start_slot_id=start_slot_id,
+                        session_type=session_type,
+                        user=user,
+                        duration_minutes=settings.PAYMENT_SETTINGS['ORDER_EXPIRY_MINUTES']
+                    )
+                except SlotReservationError as e:
+                    raise OrderCreationError(f"Slot reservation failed: {str(e)}")
+
+                # Get service price
+                amount = PricingService.get_service_price(session_type.lower().replace('meeting', '_session'), currency)
+
+                # Create order with reservation metadata
+                order = Order.objects.create(
+                    order_type='appointment_booking',
+                    user=user,
+                    psychologist=psychologist,
+                    amount=amount,
+                    currency=currency,
+                    payment_provider=provider_name,
+                    description=f"{session_type.replace('_', ' ')} with {psychologist.full_name} for {child.display_name}",
+                    expires_at=timezone.now() + timedelta(
+                        minutes=settings.PAYMENT_SETTINGS['ORDER_EXPIRY_MINUTES']
+                    ),
+                    metadata={
+                        'user_id': str(user.id),
+                        'child_id': str(child.id),
+                        'child_name': child.display_name,
+                        'psychologist_id': str(psychologist.user.id),
+                        'psychologist_name': psychologist.full_name,
+                        'session_type': session_type,
+                        'parent_notes': parent_notes,
+                        'reserved_slot_ids': [slot.slot_id for slot in reserved_slots],
+                        'start_slot_id': start_slot_id,
+                        'reservation_expires_at': reserved_slots[0].reserved_until.isoformat() if reserved_slots else None,
+                        'slots_count': len(reserved_slots)
+                    }
+                )
+
+                # Create transaction record
+                Transaction.create_transaction(
+                    order=order,
+                    transaction_type='order_created',
+                    description=f"Appointment booking order created for {session_type} with {psychologist.full_name}",
+                    amount=amount,
+                    currency=currency,
+                    initiated_by=user,
+                    metadata={
+                        'order_type': 'appointment_booking',
+                        'session_type': session_type,
+                        'psychologist_id': str(psychologist.user.id),
+                        'child_id': str(child.id),
+                        'reserved_slots': [slot.slot_id for slot in reserved_slots]
+                    }
+                )
+
+                logger.info(f"Created appointment booking order {order.order_id} with {len(reserved_slots)} reserved slots for user {user.email}")
+                return order
+
+        except Exception as e:
+            logger.error(f"Failed to create appointment booking order for {user.email}: {str(e)}")
+            raise OrderCreationError(f"Failed to create appointment booking order: {str(e)}")
+    @staticmethod
     def get_order_by_id(order_id: str, user: User = None) -> Optional[Order]:
         """
         Get order by ID with optional user filtering
@@ -519,16 +626,22 @@ class PaymentService:
         Returns:
             True if payment confirmed successfully
         """
+        logger.info(f"DEBUG: Starting payment confirmation for payment_id: {payment.payment_id}")
         try:
             with transaction.atomic():
                 # Get provider
+                logger.info(f"DEBUG: Getting payment provider for: {payment.order.payment_provider}")
                 provider = get_payment_provider(payment.order.payment_provider)
+                logger.info(f"DEBUG: Got provider: {provider}")
 
                 # Confirm payment with provider
+                logger.info(f"DEBUG: Confirming payment with provider_payment_id: {payment.provider_payment_id}")
                 confirmation_data = provider.confirm_payment(payment.provider_payment_id)
+                logger.info(f"DEBUG: Provider confirmation data: {confirmation_data}")
 
                 # Update payment record
                 old_status = payment.status
+                logger.info(f"DEBUG: Updating payment status from {old_status} to {confirmation_data['status']}")
                 payment.status = confirmation_data['status']
                 payment.provider_response = {
                     **payment.provider_response,
@@ -537,13 +650,17 @@ class PaymentService:
 
                 if confirmation_data['status'] == 'succeeded':
                     payment.processed_at = timezone.now()
+                    logger.info(f"DEBUG: Marking order as paid at {payment.processed_at}")
                     payment.order.mark_as_paid(payment.processed_at)
                 elif confirmation_data['status'] == 'failed':
+                    logger.info(f"DEBUG: Marking payment as failed with reason: {confirmation_data.get('failure_reason')}")
                     payment.mark_as_failed(confirmation_data.get('failure_reason'))
 
                 payment.save(update_fields=['status', 'provider_response', 'processed_at', 'updated_at'])
+                logger.info(f"DEBUG: Payment saved with status: {payment.status}")
 
                 # Create transaction record
+                logger.info(f"DEBUG: Creating transaction record")
                 Transaction.create_transaction(
                     order=payment.order,
                     payment=payment,
@@ -556,16 +673,24 @@ class PaymentService:
                     provider_reference=payment.provider_payment_id,
                     provider_response=confirmation_data.get('provider_data', {})
                 )
+                logger.info(f"DEBUG: Transaction record created")
 
                 # Handle post-payment actions
                 if confirmation_data['status'] == 'succeeded':
+                    logger.info(f"DEBUG: Handling successful payment for order_type: {payment.order.order_type}")
                     PaymentService._handle_successful_payment(payment)
+                elif confirmation_data['status'] == 'failed':
+                    logger.info(f"DEBUG: Handling failed payment")
+                    PaymentService._handle_failed_payment(payment)
 
                 logger.info(f"Confirmed payment {payment.payment_id}: {confirmation_data['status']}")
                 return confirmation_data['status'] == 'succeeded'
 
         except Exception as e:
             logger.error(f"Failed to confirm payment {payment.payment_id}: {str(e)}")
+            logger.error(f"DEBUG: Exception details: {type(e).__name__}: {str(e)}")
+            import traceback
+            logger.error(f"DEBUG: Full traceback: {traceback.format_exc()}")
             return False
 
     @staticmethod
@@ -576,27 +701,195 @@ class PaymentService:
         Args:
             payment: Successful payment instance
         """
+        logger.info(f"DEBUG: Starting _handle_successful_payment for payment_id: {payment.payment_id}")
         try:
             order = payment.order
+            logger.info(f"DEBUG: Processing order_type: {order.order_type}")
 
             if order.order_type == 'psychologist_registration':
+                logger.info(f"DEBUG: Handling psychologist registration")
                 # Auto-approve psychologist
                 if order.psychologist:
                     order.psychologist.verification_status = 'Approved'
                     order.psychologist.save(update_fields=['verification_status', 'updated_at'])
-
                     logger.info(f"Auto-approved psychologist {order.psychologist.user.email} after payment")
-
                     # TODO: Send approval email
 
             elif order.order_type == 'appointment_booking':
-                # Confirm appointment
-                # TODO: Update appointment status when appointments app is ready
-                pass
+                logger.info(f"DEBUG: Handling appointment booking")
+                from appointments.services.reservation_service import SlotReservationService
+                from appointments.services import AppointmentBookingService
+                from children.models import Child
+
+                try:
+                    # Get reservation details from order metadata
+                    logger.info(f"DEBUG: Order metadata: {order.metadata}")
+                    reserved_slot_ids = order.metadata.get('reserved_slot_ids', [])
+                    child_id = order.metadata.get('child_id')
+                    session_type = order.metadata.get('session_type')
+                    parent_notes = order.metadata.get('parent_notes', '')
+
+                    logger.info(f"DEBUG: reserved_slot_ids: {reserved_slot_ids}")
+                    logger.info(f"DEBUG: child_id: {child_id}")
+                    logger.info(f"DEBUG: session_type: {session_type}")
+
+                    if not reserved_slot_ids or not child_id:
+                        logger.error(f"DEBUG: Missing reservation data - reserved_slot_ids: {reserved_slot_ids}, child_id: {child_id}")
+                        logger.error(f"Missing reservation data in order {order.order_id}")
+                        return
+
+                    # Get child and parent
+                    logger.info(f"DEBUG: Getting child with id: {child_id}")
+                    child = Child.objects.get(id=child_id)
+                    logger.info(f"DEBUG: Found child: {child}")
+
+                    parent = order.user.parent_profile
+                    logger.info(f"DEBUG: Found parent: {parent}")
+
+                    # Confirm reservations to permanent bookings - PASS PSYCHOLOGIST FROM ORDER
+                    logger.info(f"DEBUG: Confirming reservations to bookings for user: {order.user}")
+                    confirmed_slots = SlotReservationService.confirm_reservations_to_bookings(
+                        user=order.user,
+                        psychologist=order.psychologist,  # Pass psychologist from order
+                        appointment=None  # We'll create appointment after this
+                    )
+                    logger.info(f"DEBUG: Confirmed slots: {confirmed_slots}")
+                    logger.info(f"DEBUG: Number of confirmed slots: {len(confirmed_slots) if confirmed_slots else 0}")
+
+                    if not confirmed_slots:
+                        logger.error(f"DEBUG: No slots confirmed for order {order.order_id}")
+                        logger.error(f"No slots confirmed for order {order.order_id}")
+                        return
+
+                    # Create appointment using the existing service method
+                    # Calculate scheduled times from confirmed slots
+                    scheduled_start_time = confirmed_slots[0].datetime_start
+                    scheduled_end_time = confirmed_slots[-1].datetime_end
+                    logger.info(f"DEBUG: Scheduled times - start: {scheduled_start_time}, end: {scheduled_end_time}")
+
+                    # Set meeting address for in-person appointments
+                    meeting_address = ""
+                    if session_type == 'InitialConsultation':
+                        meeting_address = order.psychologist.office_address or ""
+                        logger.info(f"DEBUG: Meeting address set to: {meeting_address}")
+
+                    # Create appointment record
+                    from appointments.models import Appointment
+                    logger.info(f"DEBUG: Creating appointment with:")
+                    logger.info(f"  - child: {child}")
+                    logger.info(f"  - psychologist: {order.psychologist}")
+                    logger.info(f"  - parent: {parent}")
+                    logger.info(f"  - session_type: {session_type}")
+                    logger.info(f"  - scheduled_start_time: {scheduled_start_time}")
+                    logger.info(f"  - scheduled_end_time: {scheduled_end_time}")
+
+                    appointment = Appointment.objects.create(
+                        child=child,
+                        psychologist=order.psychologist,
+                        parent=parent,
+                        session_type=session_type,
+                        appointment_status='Scheduled',  # Direct to scheduled since payment confirmed
+                        payment_status='Paid',
+                        scheduled_start_time=scheduled_start_time,
+                        scheduled_end_time=scheduled_end_time,
+                        meeting_address=meeting_address,
+                        parent_notes=parent_notes
+                    )
+                    logger.info(f"DEBUG: Created appointment with ID: {appointment.appointment_id}")
+
+                    # Link appointment to slots
+                    logger.info(f"DEBUG: Linking appointment to {len(confirmed_slots)} slots")
+                    appointment.appointment_slots.set(confirmed_slots)
+                    logger.info(f"DEBUG: Appointment slots linked")
+
+                    # Generate meeting specifics
+                    if session_type == 'OnlineMeeting':
+                        logger.info(f"DEBUG: Generating online meeting details")
+                        # Generate placeholder meeting details (you can enhance this later)
+                        meeting_id = f"meeting_{appointment.appointment_id.hex[:10]}"
+                        meeting_link = f"https://zoom.us/j/{meeting_id}"  # Placeholder
+                        appointment.meeting_id = meeting_id
+                        appointment.meeting_link = meeting_link
+                        appointment.save(update_fields=['meeting_id', 'meeting_link', 'updated_at'])
+                        logger.info(f"DEBUG: Online meeting details set - ID: {meeting_id}, Link: {meeting_link}")
+
+                    # Update order with appointment reference
+                    order.metadata['appointment_id'] = str(appointment.appointment_id)
+                    order.save(update_fields=['metadata', 'updated_at'])
+                    logger.info(f"DEBUG: Order metadata updated with appointment_id: {appointment.appointment_id}")
+
+                    logger.info(f"Appointment {appointment.appointment_id} created for order {order.order_id}")
+
+                    # TODO: Send confirmation emails
+
+                except Exception as e:
+                    logger.error(f"DEBUG: Exception in appointment booking: {type(e).__name__}: {str(e)}")
+                    logger.error(f"Failed to create appointment for order {order.order_id}: {str(e)}")
+                    import traceback
+                    logger.error(f"DEBUG: Full traceback: {traceback.format_exc()}")
+
+                    # Release any confirmed slots if appointment creation fails
+                    try:
+                        logger.info(f"DEBUG: Attempting to release reservations due to appointment creation failure")
+                        SlotReservationService.release_user_reservations(order.user, psychologist=order.psychologist)
+                    except Exception as release_e:
+                        logger.error(f"DEBUG: Failed to release reservations: {str(release_e)}")
+                        pass
 
         except Exception as e:
+            logger.error(f"DEBUG: Exception in _handle_successful_payment: {type(e).__name__}: {str(e)}")
             logger.error(f"Error handling successful payment {payment.payment_id}: {str(e)}")
+            import traceback
+            logger.error(f"DEBUG: Full traceback: {traceback.format_exc()}")
 
+    @staticmethod
+    def _handle_failed_payment(payment: Payment):
+        """
+        Handle payment failure - release reservations and cleanup
+        """
+        logger.info(f"DEBUG: Starting _handle_failed_payment for payment_id: {payment.payment_id}")
+        try:
+            order = payment.order
+            logger.info(f"DEBUG: Processing failed payment for order_type: {order.order_type}")
+
+            if order.order_type == 'appointment_booking':
+                # Import reservation service
+                from appointments.services.reservation_service import SlotReservationService
+
+                # Release any reserved slots
+                logger.info(f"DEBUG: Releasing reservations for user: {order.user}, psychologist: {order.psychologist}")
+                released_count = SlotReservationService.release_user_reservations(
+                    user=order.user,
+                    psychologist=order.psychologist
+                )
+                logger.info(f"DEBUG: Released {released_count} slot reservations")
+
+                logger.info(f"Payment failed for order {order.order_id}, released {released_count} slot reservations")
+
+                # Create transaction record for failure
+                logger.info(f"DEBUG: Creating transaction record for payment failure")
+                Transaction.create_transaction(
+                    order=order,
+                    payment=payment,
+                    transaction_type='payment_failed',
+                    description=f"Payment failed - released {released_count} slot reservations",
+                    amount=payment.amount,
+                    currency=payment.currency,
+                    metadata={
+                        'released_slots_count': released_count,
+                        'failure_reason': payment.failure_reason
+                    }
+                )
+                logger.info(f"DEBUG: Transaction record created for payment failure")
+
+            # Handle other order types if needed
+            logger.info(f"Handled payment failure for order {order.order_id}")
+
+        except Exception as e:
+            logger.error(f"DEBUG: Exception in _handle_failed_payment: {type(e).__name__}: {str(e)}")
+            logger.error(f"Error handling payment failure for payment {payment.payment_id}: {str(e)}")
+            import traceback
+            logger.error(f"DEBUG: Full traceback: {traceback.format_exc()}")
     @staticmethod
     def process_refund(
         payment: Payment,

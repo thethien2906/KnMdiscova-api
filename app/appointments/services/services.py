@@ -1,4 +1,4 @@
-# appointments/services.py
+# appointments/services/services.py
 from django.db import transaction
 from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
@@ -8,8 +8,9 @@ from datetime import date, datetime, timedelta, time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 import uuid
+from .reservation_service import SlotReservationService, SlotReservationError
 
-from .models import Appointment, AppointmentSlot
+from ..models import Appointment, AppointmentSlot
 from psychologists.models import Psychologist, PsychologistAvailability
 from parents.models import Parent
 from children.models import Child

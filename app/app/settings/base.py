@@ -218,7 +218,14 @@ PAYMENT_AMOUNTS = {
     },
     'INITIAL_CONSULTATION': {
         'USD': Decimal(os.environ.get('INITIAL_CONSULTATION_FEE_USD', '280.00')),
+    },
+    'ONLINESESSION': {
+        'USD': Decimal(os.environ.get('ONLINE_SESSION_FEE_USD', '150.00')),
+    },
+    'INITIALCONSULTATION': {
+        'USD': Decimal(os.environ.get('INITIAL_CONSULTATION_FEE_USD', '280.00')),
     }
+
 }
 
 # Payment Security

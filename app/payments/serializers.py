@@ -500,3 +500,101 @@ class PaymentSummarySerializer(serializers.ModelSerializer):
             'processed_at',
             'created_at',
         ]
+
+class CreateAppointmentOrderWithReservationSerializer(serializers.Serializer):
+    """
+    Serializer for creating appointment booking orders WITH reservation
+    """
+    psychologist_id = serializers.UUIDField(
+        help_text=_("ID of the psychologist for the appointment")
+    )
+    child_id = serializers.UUIDField(
+        help_text=_("ID of the child for the appointment")
+    )
+    session_type = serializers.ChoiceField(
+        choices=['OnlineMeeting', 'InitialConsultation'],
+        help_text=_("Type of session to book")
+    )
+    start_slot_id = serializers.IntegerField(
+        help_text=_("ID of the starting appointment slot")
+    )
+    parent_notes = serializers.CharField(
+        max_length=1000,
+        required=False,
+        allow_blank=True,
+        help_text=_("Optional notes from parent")
+    )
+    currency = serializers.ChoiceField(
+        choices=['USD'],
+        default='USD',
+        help_text=_("Currency for the payment")
+    )
+    provider = serializers.ChoiceField(
+        choices=['stripe'],
+        default='stripe',
+        help_text=_("Payment provider to use")
+    )
+
+    def validate_psychologist_id(self, value):
+        """Validate psychologist ID"""
+        try:
+            from psychologists.models import Psychologist
+            psychologist = Psychologist.objects.get(user__id=value)
+
+            if not psychologist.is_marketplace_visible:
+                raise serializers.ValidationError(_("Psychologist is not available for bookings"))
+
+            return psychologist
+        except Psychologist.DoesNotExist:
+            raise serializers.ValidationError(_("Psychologist not found"))
+
+    def validate_child_id(self, value):
+        """Validate child ID and ownership"""
+        try:
+            from children.models import Child
+            child = Child.objects.get(id=value)
+
+            # Check if child belongs to requesting parent
+            user = self.context['request'].user
+            if hasattr(user, 'parent_profile') and child.parent != user.parent_profile:
+                raise serializers.ValidationError(_("You can only book appointments for your own children"))
+
+            return child
+        except Child.DoesNotExist:
+            raise serializers.ValidationError(_("Child not found"))
+
+    def validate(self, attrs):
+        """Cross-field validation"""
+        psychologist = attrs['psychologist_id']  # This is now a Psychologist instance
+        session_type = attrs['session_type']
+
+        # Validate psychologist offers this session type
+        if session_type == 'OnlineMeeting' and not psychologist.offers_online_sessions:
+            raise serializers.ValidationError(_("Psychologist does not offer online sessions"))
+
+        if session_type == 'InitialConsultation' and not psychologist.offers_initial_consultation:
+            raise serializers.ValidationError(_("Psychologist does not offer initial consultations"))
+
+        return attrs
+
+    def create(self, validated_data):
+        """Create appointment booking order with reservation"""
+        user = self.context['request'].user
+        child = validated_data['child_id']  # Now a Child instance
+        psychologist = validated_data['psychologist_id']  # Now a Psychologist instance
+        session_type = validated_data['session_type']
+        start_slot_id = validated_data['start_slot_id']
+        parent_notes = validated_data.get('parent_notes', '')
+        currency = validated_data['currency']
+        provider = validated_data['provider']
+
+        return OrderService.create_appointment_booking_order_with_reservation(
+            user=user,
+            child=child,
+            psychologist=psychologist,
+            session_type=session_type,
+            start_slot_id=start_slot_id,
+            parent_notes=parent_notes,
+            currency=currency,
+            provider_name=provider
+        )

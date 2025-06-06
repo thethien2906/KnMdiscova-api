@@ -194,8 +194,8 @@ class Order(models.Model):
             # For appointment orders, both psychologist and appointment must be provided
             models.CheckConstraint(
                 check=models.Q(order_type='psychologist_registration') |
-                      (models.Q(psychologist__isnull=False) & models.Q(appointment__isnull=False)),
-                name='appointment_order_has_psychologist_and_appointment'
+                      (models.Q(psychologist__isnull=False)),
+                name='appointment_order_has_psychologist'
             ),
             # Amount must be positive
             models.CheckConstraint(
@@ -227,13 +227,13 @@ class Order(models.Model):
             if not self.psychologist:
                 errors['psychologist'] = _("Psychologist is required for appointment booking orders")
 
-            if not self.appointment:
-                errors['appointment'] = _("Appointment is required for appointment booking orders")
+            # if not self.appointment:
+            #     errors['appointment'] = _("Appointment is required for appointment booking orders")
 
-            # Validate appointment-psychologist relationship
-            if self.appointment and self.psychologist:
-                if self.appointment.psychologist != self.psychologist:
-                    errors['appointment'] = _("Appointment must belong to the specified psychologist")
+            # # Validate appointment-psychologist relationship
+            # if self.appointment and self.psychologist:
+            #     if self.appointment.psychologist != self.psychologist:
+            #         errors['appointment'] = _("Appointment must belong to the specified psychologist")
 
         # Validate expiry date
         # if self.expires_at and self.expires_at <= timezone.now():
