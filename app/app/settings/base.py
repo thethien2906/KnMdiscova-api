@@ -3,7 +3,7 @@ from pathlib import Path
 import os
 import sys
 from dotenv import load_dotenv
-
+from decimal import Decimal
 # Load environment variables
 load_dotenv()
 
@@ -43,6 +43,7 @@ INSTALLED_APPS = [
     'children',
     'psychologists',
     'appointments',
+    'payments',
 ]
 
 MIDDLEWARE = [
@@ -171,3 +172,79 @@ ALLOWED_HOSTS = []
 CORS_ALLOW_ALL_ORIGINS = False
 CORS_ALLOW_CREDENTIALS = True
 CSRF_TRUSTED_ORIGINS = []
+
+
+# Add this after the existing configuration sections
+
+# =============================================================================
+# PAYMENT CONFIGURATION
+# =============================================================================
+
+# Payment Providers
+PAYMENT_PROVIDERS = {
+    'STRIPE': {
+        'ENABLED': os.environ.get('STRIPE_ENABLED', 'False') == 'True',
+        'PUBLISHABLE_KEY': os.environ.get('STRIPE_PUBLISHABLE_KEY', ''),
+        'SECRET_KEY': os.environ.get('STRIPE_SECRET_KEY', ''),
+        'WEBHOOK_SECRET': os.environ.get('STRIPE_WEBHOOK_SECRET', ''),
+        'WEBHOOK_ENDPOINT': '/api/payments/webhooks/stripe/',
+    },
+    'PAYPAL': {
+        'ENABLED': os.environ.get('PAYPAL_ENABLED', 'False') == 'True',
+        'CLIENT_ID': os.environ.get('PAYPAL_CLIENT_ID', ''),
+        'CLIENT_SECRET': os.environ.get('PAYPAL_CLIENT_SECRET', ''),
+        'WEBHOOK_ID': os.environ.get('PAYPAL_WEBHOOK_ID', ''),
+        'WEBHOOK_ENDPOINT': '/api/payments/webhooks/paypal/',
+        'ENVIRONMENT': os.environ.get('PAYPAL_ENVIRONMENT', 'sandbox'),  # 'sandbox' or 'live'
+    }
+}
+
+# Payment Configuration
+PAYMENT_SETTINGS = {
+    'DEFAULT_CURRENCY': 'USD',
+    'SUPPORTED_CURRENCIES': ['USD', 'EUR', 'GBP'],
+    'ORDER_EXPIRY_MINUTES': int(os.environ.get('PAYMENT_ORDER_EXPIRY_MINUTES', '30')),
+    'WEBHOOK_TIMEOUT_SECONDS': int(os.environ.get('PAYMENT_WEBHOOK_TIMEOUT_SECONDS', '30')),
+    'MAX_REFUND_DAYS': int(os.environ.get('PAYMENT_MAX_REFUND_DAYS', '30')),
+}
+
+# Service Pricing Configuration
+PAYMENT_AMOUNTS = {
+    'PSYCHOLOGIST_REGISTRATION': {
+        'USD': Decimal(os.environ.get('PSYCHOLOGIST_REGISTRATION_FEE_USD', '100.00')),
+    },
+    'ONLINE_SESSION': {
+        'USD': Decimal(os.environ.get('ONLINE_SESSION_FEE_USD', '150.00')),
+    },
+    'INITIAL_CONSULTATION': {
+        'USD': Decimal(os.environ.get('INITIAL_CONSULTATION_FEE_USD', '280.00')),
+    },
+    'ONLINESESSION': {
+        'USD': Decimal(os.environ.get('ONLINE_SESSION_FEE_USD', '150.00')),
+    },
+    'INITIALCONSULTATION': {
+        'USD': Decimal(os.environ.get('INITIAL_CONSULTATION_FEE_USD', '280.00')),
+    }
+
+}
+
+# Payment Security
+PAYMENT_SECURITY = {
+    'REQUIRE_HTTPS_WEBHOOKS': os.environ.get('PAYMENT_REQUIRE_HTTPS_WEBHOOKS', 'True') == 'True',
+    'WEBHOOK_IP_WHITELIST': [
+        # Stripe webhook IPs will be added in production
+        '3.18.12.63', '3.130.192.231', '13.235.14.237', '13.235.122.149',
+        '18.211.135.69', '35.154.171.200', '52.15.183.38', '54.187.174.169',
+        '54.187.205.235', '54.187.216.72'
+    ] if os.environ.get('PAYMENT_REQUIRE_HTTPS_WEBHOOKS', 'True') == 'True' else [],
+    'RATE_LIMIT_REQUESTS_PER_MINUTE': int(os.environ.get('PAYMENT_RATE_LIMIT_PER_MINUTE', '60')),
+}
+
+# Frontend URLs for payment redirects
+PAYMENT_FRONTEND_URLS = {
+    'PAYMENT_SUCCESS': f"{FRONTEND_URL}/payment/success",
+    'PAYMENT_CANCEL': f"{FRONTEND_URL}/payment/cancel",
+    'PAYMENT_ERROR': f"{FRONTEND_URL}/payment/error",
+    'PSYCHOLOGIST_DASHBOARD': f"{FRONTEND_URL}/psychologist/dashboard",
+    'APPOINTMENT_CONFIRMATION': f"{FRONTEND_URL}/appointments/confirmation",
+}

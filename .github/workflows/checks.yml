@@ -41,4 +41,9 @@ jobs:
                 # CORS Settings
                 CORS_ALLOW_ALL_ORIGINS: False
                 CORS_ALLOW_CREDENTIALS: True
+                # Stripe credentials
+                STRIPE_ENABLED: True
+                STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY }}
+                STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+                STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
               run: docker compose run --rm app ash -c "python manage.py wait_for_db && python manage.py test"

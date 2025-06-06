@@ -17,10 +17,10 @@ DATABASES = {
 if 'test' in sys.argv:
     DATABASES['default'] = {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'testdb',       # Matches POSTGRES_DB in docker-compose.test.yml
-        'USER': 'testuser',     # Matches POSTGRES_USER in docker-compose.test.yml
-        'PASSWORD': 'testpass', # Matches POSTGRES_PASSWORD in docker-compose.test.yml
-        'HOST': 'db',           # This is the service name from docker-compose.test.yml
+        'NAME': 'testdb',
+        'USER': 'testuser',
+        'PASSWORD': 'testpass',
+        'HOST': 'db',
         'PORT': '5432',
     }
 
@@ -35,3 +35,6 @@ STATIC_ROOT = BASE_DIR / 'staticfiles'
 # Media files
 MEDIA_URL = '/media/'
 MEDIA_ROOT = BASE_DIR / 'media'
+
+DEBUG = os.getenv("DEBUG", "False") == "True"
+ALLOWED_HOSTS = os.getenv("ALLOWED_HOSTS", "localhost,127.0.0.1").split(",")

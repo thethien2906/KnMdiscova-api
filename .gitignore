@@ -131,6 +131,7 @@ celerybeat.pid
 .env
 .env.dev
 .env.prod
+.env.ssl
 .venv
 env/
 venv/

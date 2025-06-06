@@ -62,7 +62,34 @@ class AppointmentSlot(models.Model):
         default=False,
         help_text=_("Whether this slot is currently booked")
     )
+    RESERVATION_STATUS_CHOICES = [
+        ('available', _('Available')),
+        ('reserved', _('Reserved During Payment')),
+    ]
 
+    reservation_status = models.CharField(
+        _('reservation status'),
+        max_length=20,
+        choices=RESERVATION_STATUS_CHOICES,
+        default='available',
+        help_text=_("Temporary reservation status during payment process")
+    )
+
+    reserved_until = models.DateTimeField(
+        _('reserved until'),
+        null=True,
+        blank=True,
+        help_text=_("When the temporary reservation expires")
+    )
+
+    reserved_by = models.ForeignKey(
+        'users.User',
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='reserved_slots',
+        help_text=_("User who has temporarily reserved this slot")
+    )
     # Timestamps
     created_at = models.DateTimeField(
         _('created at'),
@@ -83,6 +110,9 @@ class AppointmentSlot(models.Model):
             models.Index(fields=['slot_date', 'is_booked']),
             models.Index(fields=['availability_block']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['reservation_status', 'reserved_until']),
+            models.Index(fields=['reserved_by', 'reservation_status']),
+            models.Index(fields=['psychologist', 'is_booked', 'reservation_status']),
         ]
         constraints = [
             # Ensure end_time is exactly 1 hour after start_time
@@ -169,9 +199,18 @@ class AppointmentSlot(models.Model):
 
     @property
     def is_available_for_booking(self):
-        """Check if slot is available for booking"""
+        """Check if slot is available for booking (updated to consider reservations)"""
+        # If already booked, definitely not available
+        if self.is_booked:
+            return False
+
+        # If reserved and not expired, not available (unless reserved by same user)
+        if self.reservation_status == 'reserved' and self.reserved_until:
+            if timezone.now() < self.reserved_until:
+                return False  # Reserved by someone else or expired
+
+        # Check other existing conditions
         return (
-            not self.is_booked and
             self.datetime_start > timezone.now() and
             self.psychologist.can_book_appointments()
         )
@@ -192,12 +231,77 @@ class AppointmentSlot(models.Model):
         self.is_booked = False
         self.save(update_fields=['is_booked', 'updated_at'])
 
+    def reserve_for_payment(self, user, duration_minutes=30):
+        """Reserve slot temporarily during payment process"""
+        if self.is_booked:
+            raise ValidationError(_("Cannot reserve already booked slot"))
+
+        if self.reservation_status == 'reserved' and self.reserved_until > timezone.now():
+            raise ValidationError(_("Slot is already reserved by another user"))
+
+        self.reservation_status = 'reserved'
+        self.reserved_until = timezone.now() + timedelta(minutes=duration_minutes)
+        self.reserved_by = user
+        self.save(update_fields=['reservation_status', 'reserved_until', 'reserved_by', 'updated_at'])
+
+    def release_reservation(self, user=None):
+        """Release temporary reservation"""
+        # Only release if reserved by the same user or no user specified (admin/system)
+        if user and self.reserved_by != user:
+            raise ValidationError(_("Cannot release reservation made by another user"))
+
+        self.reservation_status = 'available'
+        self.reserved_until = None
+        self.reserved_by = None
+        self.save(update_fields=['reservation_status', 'reserved_until', 'reserved_by', 'updated_at'])
+
+    def confirm_reservation_to_booking(self, user=None):
+        """Convert temporary reservation to permanent booking"""
+        if user and self.reserved_by != user:
+            raise ValidationError(_("Cannot confirm reservation made by another user"))
+
+        if self.reservation_status != 'reserved':
+            raise ValidationError(_("No reservation to confirm"))
+
+        # Use existing method to mark as booked
+        self.mark_as_booked()
+        # Clear reservation fields since it's now permanently booked
+        self.reservation_status = 'available'  # Reset to default
+        self.reserved_until = None
+        self.reserved_by = None
+        self.save(update_fields=['reservation_status', 'reserved_until', 'reserved_by', 'updated_at'])
+
+    def is_reserved_by_user(self, user):
+        """Check if slot is reserved by specific user"""
+        return (
+            self.reservation_status == 'reserved' and
+            self.reserved_by == user and
+            self.reserved_until and
+            self.reserved_until > timezone.now()
+        )
+
     @classmethod
-    def get_available_slots(cls, psychologist, date_from=None, date_to=None):
-        """Get available slots for a psychologist within date range"""
+    def cleanup_expired_reservations(cls):
+        """Clean up expired reservations (class method for management command)"""
+        expired_reservations = cls.objects.filter(
+            reservation_status='reserved',
+            reserved_until__lt=timezone.now()
+        )
+
+        count = expired_reservations.count()
+        expired_reservations.update(
+            reservation_status='available',
+            reserved_until=None,
+            reserved_by=None
+        )
+
+        return count
+    @classmethod
+    def get_available_slots(cls, psychologist, date_from=None, date_to=None, exclude_user_reservations=None):
+        """Get available slots for a psychologist within date range (updated)"""
         queryset = cls.objects.filter(
             psychologist=psychologist,
-            is_booked=False
+            is_booked=False  # Keep existing logic
         )
 
         if date_from:
@@ -205,7 +309,21 @@ class AppointmentSlot(models.Model):
         if date_to:
             queryset = queryset.filter(slot_date__lte=date_to)
 
+        # Exclude reserved slots, unless they're reserved by the specified user
+        if exclude_user_reservations:
+            queryset = queryset.filter(
+                models.Q(reservation_status='available') |
+                models.Q(reserved_by=exclude_user_reservations) |
+                models.Q(reserved_until__lt=timezone.now())  # Include expired reservations
+            )
+        else:
+            queryset = queryset.filter(
+                models.Q(reservation_status='available') |
+                models.Q(reserved_until__lt=timezone.now())  # Include expired reservations
+            )
+
         return queryset.order_by('slot_date', 'start_time')
+
 
     @classmethod
     def find_consecutive_slots(cls, psychologist, slot_date, start_time, num_slots=2):
@@ -255,6 +373,7 @@ class Appointment(models.Model):
         ('Completed', _('Completed')),
         ('Cancelled', _('Cancelled')),
         ('No_Show', _('No Show')),
+        ('Payment_Failed', _('Payment Failed')),  # NEW status
     ]
 
     # Payment Status Choices
@@ -614,3 +733,37 @@ class Appointment(models.Model):
             ).order_by('scheduled_start_time')
 
         return cls.objects.none()
+
+    def mark_as_payment_pending(self):
+        """Mark appointment as pending payment"""
+        self.appointment_status = 'Payment_Pending'
+        self.save(update_fields=['appointment_status', 'updated_at'])
+
+    def mark_as_payment_failed(self):
+        """Mark appointment as payment failed"""
+        self.appointment_status = 'Payment_Failed'
+        self.save(update_fields=['appointment_status', 'updated_at'])
+
+    def confirm_payment_and_schedule(self):
+        """Confirm payment and mark as scheduled"""
+        if self.appointment_status != 'Payment_Pending':
+            raise ValidationError(_("Can only confirm payment for pending appointments"))
+
+        self.appointment_status = 'Scheduled'
+        self.payment_status = 'Paid'
+        self.save(update_fields=['appointment_status', 'payment_status', 'updated_at'])
+
+    @property
+    def is_payment_pending(self):
+        """Check if appointment is pending payment"""
+        return self.appointment_status == 'Payment_Pending'
+
+    @property
+    def has_payment_failed(self):
+        """Check if appointment payment has failed"""
+        return self.appointment_status == 'Payment_Failed'
+
+    @property
+    def payment_order(self):
+        """Get the payment order for this appointment (using existing relationship)"""
+        return self.orders.filter(order_type='appointment_booking').first()

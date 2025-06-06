@@ -1,0 +1,127 @@
+<!-- Save as test_payment.html and open in browser -->
+<!DOCTYPE html>
+<html>
+<head>
+    <title>K&Mdiscova Payment Test</title>
+    <script src="https://js.stripe.com/v3/"></script>
+    <style>
+        body { font-family: Arial, sans-serif; max-width: 500px; margin: 50px auto; padding: 20px; }
+        .payment-form { background: #f8f9fa; padding: 30px; border-radius: 8px; }
+        #card-element { padding: 15px; border: 1px solid #ccc; border-radius: 4px; margin: 15px 0; background: white; }
+        button { background: #007cba; color: white; padding: 15px 30px; border: none; border-radius: 4px; cursor: pointer; font-size: 16px; width: 100%; }
+        button:disabled { background: #ccc; }
+        .error { color: red; margin-top: 10px; }
+        .success { color: green; margin-top: 10px; }
+        .info { background: #e3f2fd; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+    <div class="payment-form">
+        <div class="info">
+            <h3>🧪 K&Mdiscova Registration Payment Test</h3>
+            <p><strong>Order ID:</strong> 50bbe91b-5b12-4c79-8655-a2bf5c0dfe50</p>
+            <p><strong>Payment Intent:</strong> pi_3RWSC9Rq8N8jdwzZ0SYA86GW</p>
+            <p><strong>Amount:</strong> $100.00 USD</p>
+            <p><strong>Test Card:</strong> 4242424242424242</p>
+        </div>
+
+        <form id="payment-form">
+            <label for="card-element">Credit or debit card</label>
+            <div id="card-element">
+                <!-- Stripe Elements will create form elements here -->
+            </div>
+            <div id="card-errors" class="error" role="alert"></div>
+            <button id="submit-payment" type="submit">
+                <span id="button-text">Complete Registration Payment - $100.00</span>
+            </button>
+        </form>
+
+        <div id="payment-result"></div>
+    </div>
+
+    <script>
+        // Replace with your actual Stripe publishable key
+        const stripe = Stripe('pk_test_51RW4q4Rq8N8jdwzZXus9YjEnUhdkk3TZIll62vHWM7CBwRaqIRnmjPDKXWx1ytsJ6RrHurL77M4yo0uMjMXVdZV400DQhwWn35');
+        const elements = stripe.elements();
+
+        // Create card element
+        const cardElement = elements.create('card', {
+            style: {
+                base: {
+                    fontSize: '16px',
+                    color: '#424770',
+                    '::placeholder': { color: '#aab7c4' },
+                },
+            },
+        });
+
+        cardElement.mount('#card-element');
+
+        // Handle card errors
+        cardElement.on('change', ({error}) => {
+            const displayError = document.getElementById('card-errors');
+            if (error) {
+                displayError.textContent = error.message;
+            } else {
+                displayError.textContent = '';
+            }
+        });
+
+        // Handle form submission
+        const form = document.getElementById('payment-form');
+        form.addEventListener('submit', async (event) => {
+            event.preventDefault();
+
+            const submitButton = document.getElementById('submit-payment');
+            const buttonText = document.getElementById('button-text');
+
+            submitButton.disabled = true;
+            buttonText.textContent = '🔄 Processing Payment...';
+
+            // Your actual client_secret from the API response
+            const clientSecret = 'pi_3RWSC9Rq8N8jdwzZ0SYA86GW_secret_wrhPlDXtSyX4mNSzyqjdOOI3R';
+
+            const {error, paymentIntent} = await stripe.confirmCardPayment(clientSecret, {
+                payment_method: {
+                    card: cardElement,
+                    billing_details: {
+                        name: 'Dr. Jane Smith',
+                        email: 'testpsy1@example.com'
+                    }
+                }
+            });
+
+            if (error) {
+                // Show error to customer
+                const errorElement = document.getElementById('card-errors');
+                errorElement.textContent = error.message;
+
+                submitButton.disabled = false;
+                buttonText.textContent = 'Complete Registration Payment - $100.00';
+            } else {
+                // Payment succeeded!
+                const resultElement = document.getElementById('payment-result');
+                resultElement.innerHTML = `
+                    <div class="success">
+                        <h3>✅ Payment Successful!</h3>
+                        <p><strong>Payment Intent ID:</strong> ${paymentIntent.id}</p>
+                        <p><strong>Status:</strong> ${paymentIntent.status}</p>
+                        <p><strong>Amount:</strong> $${(paymentIntent.amount / 100).toFixed(2)}</p>
+                        <hr>
+                        <h4>🔄 Next Steps:</h4>
+                        <p>1. Stripe webhook will be sent to your server</p>
+                        <p>2. Psychologist will be auto-approved</p>
+                        <p>3. Check your Django logs for webhook processing</p>
+                        <p>4. Verify psychologist status in admin or API</p>
+                    </div>
+                `;
+
+                // Hide the form
+                form.style.display = 'none';
+
+                console.log('Payment completed:', paymentIntent);
+            }
+        });
+    </script>
+</body>
+</html>
