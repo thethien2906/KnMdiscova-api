@@ -79,7 +79,7 @@
             buttonText.textContent = '🔄 Processing Payment...';
 
             // Your actual client_secret from the API response
-            const clientSecret = 'pi_3RWSC9Rq8N8jdwzZ0SYA86GW_secret_wrhPlDXtSyX4mNSzyqjdOOI3R';
+            const clientSecret = 'pi_3RWun4Rq8N8jdwzZ0peXH95g_secret_dphufhtrJIRR9Umey2opocAUi';
 
             const {error, paymentIntent} = await stripe.confirmCardPayment(clientSecret, {
                 payment_method: {
