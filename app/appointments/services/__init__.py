@@ -14,6 +14,6 @@ from .services import (
     AppointmentSlotService,
     SlotGenerationError,
     AppointmentAnalyticsService,
-
+    AppointmentUtilityService
 
 )
