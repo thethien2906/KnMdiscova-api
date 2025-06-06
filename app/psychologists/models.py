@@ -725,3 +725,81 @@ class PsychologistAvailability(models.Model):
             return self.day_of_week == day_of_week
         else:
             return self.specific_date == target_date
+
+    def can_be_deleted(self):
+        """Check if availability block can be safely deleted"""
+        booked_slots = self.generated_slots.filter(is_booked=True)
+        return not booked_slots.exists()
+
+    def get_deletion_impact(self):
+        """Get information about what would be affected by deletion"""
+        total_slots = self.generated_slots.count()
+        booked_slots = self.generated_slots.filter(is_booked=True).count()
+        unbooked_slots = total_slots - booked_slots
+
+        return {
+            'total_slots': total_slots,
+            'booked_slots': booked_slots,
+            'unbooked_slots': unbooked_slots,
+            'can_delete': booked_slots == 0,
+            'booked_appointments': self.generated_slots.filter(
+                is_booked=True
+            ).prefetch_related('appointments').count()
+        }
+
+    def delete(self, *args, **kwargs):
+        """Override delete to handle slot cleanup properly"""
+        from django.core.exceptions import ValidationError
+
+        # Check if there are booked slots
+        booked_slots = self.generated_slots.filter(is_booked=True)
+
+        if booked_slots.exists():
+            booked_count = booked_slots.count()
+            raise ValidationError(
+                f"Cannot delete availability block: {booked_count} slots have active bookings. "
+                f"Cancel or complete the appointments first."
+            )
+
+        # Delete only unbooked slots first
+        unbooked_slots_deleted = self.generated_slots.filter(is_booked=False).delete()[0]
+
+        # Now safe to delete the availability block
+        result = super().delete(*args, **kwargs)
+
+        logger.info(
+            f"Deleted availability block {self.availability_id} and {unbooked_slots_deleted} unbooked slots"
+        )
+
+        return result
+
+    def safe_delete_with_cleanup(self):
+        """Alternative method for controlled deletion with detailed response"""
+        impact = self.get_deletion_impact()
+
+        if not impact['can_delete']:
+            return {
+                'success': False,
+                'message': f"Cannot delete: {impact['booked_slots']} slots have active bookings",
+                'impact': impact
+            }
+
+        # Delete unbooked slots
+        unbooked_deleted = self.generated_slots.filter(is_booked=False).delete()[0]
+
+        # Delete the availability block
+        block_info = {
+            'availability_id': self.availability_id,
+            'day_name': self.get_day_name() if self.is_recurring else str(self.specific_date),
+            'time_range': self.get_time_range_display()
+        }
+
+        self.delete()
+
+        return {
+            'success': True,
+            'message': f"Availability block deleted successfully",
+            'deleted_slots': unbooked_deleted,
+            'block_info': block_info,
+            'impact': impact
+        }
