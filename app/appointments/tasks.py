@@ -67,24 +67,25 @@ def auto_regenerate_slots_task(self, availability_block_id: int, old_data: dict 
         raise self.retry(exc=e)
 
 
-# @shared_task(bind=True, max_retries=3, default_retry_delay=60)
-# def auto_cleanup_slots_task(self, availability_block_id: int, psychologist_id: str):
-#     """
-#     Celery task to automatically clean up slots for deleted availability block
-#     """
-#     try:
-#         result = AppointmentSlotService.auto_cleanup_slots_for_deleted_availability(
-#             availability_block_id, psychologist_id
-#         )
+@shared_task(bind=True)
+def auto_cleanup_past_slots_task(self, days_past=7):
+    """
+    Automatically clean up past unbooked slots
+    Runs daily via cron schedule
+    """
+    try:
+        from .services import AppointmentSlotService
 
-#         if result['success']:
-#             logger.info(f"Celery task completed: auto-cleaned slots for deleted availability {availability_block_id}")
-#             return result
-#         else:
-#             logger.error(f"Celery task failed: {result.get('error', 'Unknown error')}")
-#             raise Exception(result.get('error', 'Unknown error'))
+        deleted_count = AppointmentSlotService.cleanup_past_slots(days_past)
 
-#     except Exception as e:
-#         logger.error(f"Celery task error for deleted availability {availability_block_id}: {str(e)}")
-#         # Retry the task
-#         raise self.retry(exc=e)
+        logger.info(f"Auto-cleanup completed: {deleted_count} past slots deleted")
+        return {
+            'success': True,
+            'deleted_count': deleted_count,
+            'days_past': days_past,
+            'cleanup_date': timezone.now().isoformat()
+        }
+
+    except Exception as e:
+        logger.error(f"Auto-cleanup failed: {str(e)}")
+        raise self.retry(exc=e)
