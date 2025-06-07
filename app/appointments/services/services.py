@@ -244,7 +244,128 @@ class AppointmentSlotService:
 
         logger.info(f"Cleaned up {deleted_count} past appointment slots")
         return deleted_count
+    @staticmethod
+    def auto_generate_slots_for_new_availability(availability_block: PsychologistAvailability) -> Dict[str, Any]:
+        """
+        Automatically generate slots for a new availability block
+        Used by signals when new availability is created
+        """
+        try:
+            date_from = date.today()
+            date_to = date_from + timedelta(days=90)  # 90 days ahead as requested
 
+            slots = AppointmentSlotService.generate_slots_from_availability_block(
+                availability_block, date_from, date_to
+            )
+
+            result = {
+                'success': True,
+                'availability_block_id': availability_block.availability_id,
+                'slots_created': len(slots),
+                'date_range': {'from': date_from, 'to': date_to},
+                'psychologist_id': str(availability_block.psychologist.user.id)
+            }
+
+            logger.info(
+                f"Auto-generated {len(slots)} slots for availability block {availability_block.availability_id}"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Failed to auto-generate slots for availability {availability_block.availability_id}: {str(e)}"
+            )
+            return {
+                'success': False,
+                'error': str(e),
+                'availability_block_id': availability_block.availability_id
+            }
+
+    @staticmethod
+    def auto_regenerate_slots_for_updated_availability(availability_block: PsychologistAvailability,
+                                                     old_data: Dict[str, Any] = None) -> Dict[str, Any]:
+        """
+        Regenerate slots for updated availability block
+        Preserves booked slots, only regenerates unbooked ones
+        """
+        try:
+            date_from = date.today()
+            date_to = date_from + timedelta(days=90)
+
+            # Delete only unbooked slots for this availability block
+            deleted_slots = availability_block.generated_slots.filter(
+                is_booked=False,
+                slot_date__gte=date_from,
+                slot_date__lte=date_to
+            ).delete()[0]
+
+            # Generate new slots
+            new_slots = AppointmentSlotService.generate_slots_from_availability_block(
+                availability_block, date_from, date_to
+            )
+
+            result = {
+                'success': True,
+                'availability_block_id': availability_block.availability_id,
+                'deleted_unbooked_slots': deleted_slots,
+                'new_slots_created': len(new_slots),
+                'date_range': {'from': date_from, 'to': date_to},
+                'psychologist_id': str(availability_block.psychologist.user.id)
+            }
+
+            logger.info(
+                f"Auto-regenerated slots for availability block {availability_block.availability_id}: "
+                f"deleted {deleted_slots} unbooked slots, created {len(new_slots)} new slots"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(
+                f"Failed to auto-regenerate slots for availability {availability_block.availability_id}: {str(e)}"
+            )
+            return {
+                'success': False,
+                'error': str(e),
+                'availability_block_id': availability_block.availability_id
+            }
+
+    # @staticmethod
+    # def auto_cleanup_slots_for_deleted_availability(availability_block_id: int,
+    #                                                psychologist_id: str) -> Dict[str, Any]:
+    #     """
+    #     Clean up slots when availability block is deleted
+    #     Only removes unbooked slots to preserve appointment history
+    #     """
+    #     try:
+    #         from .models import AppointmentSlot
+
+    #         # Delete only unbooked slots for this availability block
+    #         deleted_count = AppointmentSlot.objects.filter(
+    #             availability_block_id=availability_block_id,
+    #             is_booked=False
+    #         ).delete()[0]
+
+    #         result = {
+    #             'success': True,
+    #             'availability_block_id': availability_block_id,
+    #             'deleted_unbooked_slots': deleted_count,
+    #             'psychologist_id': psychologist_id
+    #         }
+
+    #         logger.info(
+    #             f"Auto-cleaned up {deleted_count} unbooked slots for deleted availability block {availability_block_id}"
+    #         )
+    #         return result
+
+    #     except Exception as e:
+    #         logger.error(
+    #             f"Failed to auto-cleanup slots for deleted availability {availability_block_id}: {str(e)}"
+    #         )
+    #         return {
+    #             'success': False,
+    #             'error': str(e),
+    #             'availability_block_id': availability_block_id
+    #         }
 
 # ============================================================================
 # APPOINTMENT BOOKING SERVICE
