@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date
 from users.models import User
+import logging
+logger = logging.getLogger(__name__)
 
 
 class Psychologist(models.Model):
