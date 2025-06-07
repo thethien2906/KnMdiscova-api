@@ -776,7 +776,40 @@ class PsychologistService:
 
         return slots
 
+    @staticmethod
+    def delete_availability_block_safe(availability: PsychologistAvailability) -> Dict[str, Any]:
+        """
+        Safely delete availability block with proper validation
+        """
+        try:
+            with transaction.atomic():
+                # Get deletion impact first
+                impact = availability.get_deletion_impact()
 
+                if not impact['can_delete']:
+                    raise AvailabilityManagementError(
+                        f"Cannot delete availability block: {impact['booked_slots']} slots have active bookings"
+                    )
+
+                # Use the safe delete method
+                result = availability.safe_delete_with_cleanup()
+
+                if result['success']:
+                    logger.info(f"Availability block safely deleted: {result['block_info']}")
+                    return result
+                else:
+                    raise AvailabilityManagementError(result['message'])
+
+        except Exception as e:
+            logger.error(f"Failed to delete availability block {availability.availability_id}: {str(e)}")
+            raise AvailabilityManagementError(f"Failed to delete availability block: {str(e)}")
+
+    @staticmethod
+    def check_availability_deletion_impact(availability: PsychologistAvailability) -> Dict[str, Any]:
+        """
+        Check what would happen if we delete this availability block
+        """
+        return availability.get_deletion_impact()
 class PsychologistVerificationService:
     """
     Service class for psychologist verification workflow

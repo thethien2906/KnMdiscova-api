@@ -4,6 +4,8 @@ import os
 import sys
 from dotenv import load_dotenv
 from decimal import Decimal
+from celery.schedules import crontab
+
 # Load environment variables
 load_dotenv()
 
@@ -247,4 +249,29 @@ PAYMENT_FRONTEND_URLS = {
     'PAYMENT_ERROR': f"{FRONTEND_URL}/payment/error",
     'PSYCHOLOGIST_DASHBOARD': f"{FRONTEND_URL}/psychologist/dashboard",
     'APPOINTMENT_CONFIRMATION': f"{FRONTEND_URL}/appointments/confirmation",
+}
+
+# =============================================================================
+# APPOINTMENT SLOT AUTO-GENERATION CONFIGURATION
+# =============================================================================
+
+# Enable/disable automatic appointment slot generation
+AUTO_GENERATE_APPOINTMENT_SLOTS = os.environ.get('AUTO_GENERATE_APPOINTMENT_SLOTS', 'True') == 'True'
+
+# How many days ahead to generate slots automatically
+AUTO_GENERATION_DAYS_AHEAD = int(os.environ.get('AUTO_GENERATION_DAYS_AHEAD', '90'))
+
+# Celery task routing for appointment slots (if using custom routing)
+CELERY_TASK_ROUTES = {
+    'appointments.tasks.auto_generate_slots_task': {'queue': 'slots'},
+    'appointments.tasks.auto_regenerate_slots_task': {'queue': 'slots'},
+    # 'appointments.tasks.auto_cleanup_slots_task': {'queue': 'slots'},
+}
+# Celery scheduler
+CELERY_BEAT_SCHEDULE = {
+    'cleanup-past-appointment-slots': {
+        'task': 'appointments.tasks.auto_cleanup_past_slots_task',
+        'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
+        'options': {'expires': 3600},  # Task expires in 1 hour if not executed
+    },
 }

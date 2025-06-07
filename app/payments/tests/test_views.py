@@ -850,7 +850,7 @@ class AppointmentBookingPaymentTestCase(APITestCase):
     #     self.assertEqual(self.slots[0].reservation_status, 'available')  # Reservation cleared
     #     self.assertIsNone(self.slots[0].reserved_by)
 
-    def test_initial_consultation_booking(self):
+    def test_initial_consultation_booking(self,mock_stripe_create):
         """Test booking a 2-hour initial consultation"""
         # Update test data for initial consultation
         self.appointment_order_data['session_type'] = 'InitialConsultation'
@@ -891,6 +891,7 @@ class AppointmentBookingPaymentTestCase(APITestCase):
             self.assertEqual(reserved_slots.count(), 2)
             self.assertEqual(reserved_slots[0].start_time, self.slots[0].start_time)
             self.assertEqual(reserved_slots[1].start_time, self.slots[1].start_time)
+
     def test_appointment_order_validation(self):
         """Test validation for appointment order creation"""
         # Test: Only parents can book appointments

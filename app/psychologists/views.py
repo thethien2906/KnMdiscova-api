@@ -10,7 +10,6 @@ from drf_spectacular.types import OpenApiTypes
 import logging
 from rest_framework.exceptions import PermissionDenied
 from datetime import date, timedelta
-
 from .models import Psychologist, PsychologistAvailability
 from .serializers import (
     PsychologistSerializer,
@@ -678,19 +677,32 @@ class PsychologistAvailabilityViewSet(GenericViewSet):
     )
     def destroy(self, request, pk=None):
         """
-        Delete availability block
+        Delete availability block with proper validation
         DELETE /api/psychologists/availability/{id}/
         """
         try:
             availability = self.get_object()
 
-            # Delete availability using service
-            PsychologistService.delete_availability_block(availability)
+            # Check deletion impact first
+            impact = PsychologistService.check_availability_deletion_impact(availability)
+
+            if not impact['can_delete']:
+                return Response({
+                    'error': _('Cannot delete availability block'),
+                    'reason': f"{impact['booked_slots']} slots have active bookings",
+                    'impact': impact,
+                    'suggestion': _('Cancel or complete the associated appointments first')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Perform safe deletion
+            result = PsychologistService.delete_availability_block_safe(availability)
 
             logger.info(f"Availability block deleted: {pk} by {request.user.email}")
             return Response({
-                'message': _('Availability block deleted successfully')
-            }, status=status.HTTP_204_NO_CONTENT)
+                'message': _('Availability block deleted successfully'),
+                'deleted_slots': result['deleted_slots'],
+                'impact': result['impact']
+            }, status=status.HTTP_200_OK)
 
         except AvailabilityManagementError as e:
             return Response({
@@ -701,7 +713,6 @@ class PsychologistAvailabilityViewSet(GenericViewSet):
             return Response({
                 'error': _('Failed to delete availability block')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
-
     @extend_schema(
         responses={
             200: {
@@ -881,7 +892,43 @@ class PsychologistAvailabilityViewSet(GenericViewSet):
             return Response({
                 'error': _('Failed to get appointment slots')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    @extend_schema(
+        responses={
+            200: {
+                'description': 'Deletion impact analysis',
+                'example': {
+                    'can_delete': False,
+                    'total_slots': 45,
+                    'booked_slots': 3,
+                    'unbooked_slots': 42,
+                    'booked_appointments': 3,
+                    'warning': 'This availability block has 3 booked appointments'
+                }
+            }
+        },
+        description="Check what would happen if this availability block is deleted",
+        tags=['Psychologist Availability']
+    )
+    @action(detail=True, methods=['get'])
+    def deletion_impact(self, request, pk=None):
+        """
+        Check deletion impact for availability block
+        GET /api/psychologists/availability/{id}/deletion-impact/
+        """
+        try:
+            availability = self.get_object()
+            impact = PsychologistService.check_availability_deletion_impact(availability)
 
+            return Response({
+                **impact,
+                'warning': f"This availability block has {impact['booked_slots']} booked appointments" if impact['booked_slots'] > 0 else None
+            }, status=status.HTTP_200_OK)
+
+        except Exception as e:
+            logger.error(f"Error checking deletion impact for {pk}: {str(e)}")
+            return Response({
+                'error': _('Failed to check deletion impact')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class PsychologistMarketplaceViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """
