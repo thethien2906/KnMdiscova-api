@@ -48,7 +48,7 @@ class Order(models.Model):
     ]
 
     # Primary fields
-    order_id = models.UUIDField(
+    face = models.UUIDField(
         primary_key=True,
         default=uuid.uuid4,
         editable=False,
