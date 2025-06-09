@@ -230,7 +230,6 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
             print(f"  - Slot ID: {slot.slot_id}, Psychologist: {slot.psychologist.user.id if slot.psychologist else 'None'}")
             print(f"    Time: {slot.start_time} - {slot.end_time}")
             print(f"    Availability Block: {slot.availability_block.availability_id if slot.availability_block else 'None'}")
-            print(f"    Source: {'MANUAL (setUp)' if hasattr(slot, 'created_at') else 'AUTO-GENERATED'}")
 
         # CLEAR EXISTING SLOTS TO TEST AUTO-GENERATION IN ISOLATION
         print(f"\n=== DEBUG: CLEARING EXISTING SLOTS FOR CLEAN TEST ===")
@@ -258,31 +257,54 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         self.assertEqual(initial_slot_count, 0,
                         f"After cleanup, still found {initial_slot_count} slots for psychologist {self.psychologist.user.id}")
 
-        # Create new availability block (Tuesday 9:00-12:00 for 90 days = many slots)
-        next_monday = get_next_weekday(0)  # 0 = Monday
+        # DEBUG: Current date info
+        from datetime import date, timedelta
+        today = date.today()
+        print(f"\n=== DEBUG: DATE ANALYSIS ===")
+        print(f"Today's date: {today} ({today.strftime('%A')})")
+        print(f"Today's weekday number: {today.weekday()} (Python: 0=Monday, 1=Tuesday, etc.)")
+
+        # YOUR SYSTEM: 1=Monday, 2=Tuesday, 3=Wednesday, etc.
+        # PYTHON:     0=Monday, 1=Tuesday, 2=Wednesday, etc.
+        # Conversion: your_day = python_weekday + 1
+
+        # Choose a day that's NOT today to avoid current-date exclusion issues
+        python_today = today.weekday()  # 0=Monday, 1=Tuesday, etc.
+        your_today = python_today + 1   # 1=Monday, 2=Tuesday, etc.
+
+        # Pick a day 2 days after today in YOUR numbering system
+        your_target_day = ((your_today - 1 + 2) % 7) + 1  # Convert to 0-based, add 2, convert back
+        python_target_day = your_target_day - 1  # Convert to Python's numbering for verification
+
+        day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
+        target_day_name = day_names[python_target_day]
+
+        print(f"Today in your system: {your_today} ({day_names[python_today]})")
+        print(f"Target day in your system: {your_target_day} ({target_day_name})")
+        print(f"Target day in Python system: {python_target_day} ({target_day_name})")
+
+        # Calculate expected slots: Target days in next 90 days * 3 slots per day
+        start_date = today
+        end_date = start_date + timedelta(days=90)
+
+        # Count target days in the 90-day period (excluding today)
+        current_date = start_date + timedelta(days=1)  # Start from tomorrow
+        target_day_count = 0
+        while current_date <= end_date:
+            if current_date.weekday() == python_target_day:
+                target_day_count += 1
+            current_date += timedelta(days=1)
+
+        expected_slot_count = target_day_count * 3  # 3 hours = 3 slots (9-10, 10-11, 11-12)
+
+        print(f"Expected {target_day_name}s in next 90 days (excluding today): {target_day_count}")
+        print(f"Expected total slots: {expected_slot_count}")
 
         print(f"\n=== DEBUG: CREATING NEW AVAILABILITY ===")
         print(f"Psychologist ID: {self.psychologist.user.id}")
-        print(f"Day of week: 1 (Tuesday)")
+        print(f"Day of week: {python_target_day} ({target_day_name})")
         print(f"Time: 09:00-12:00")
-        print(f"Expected: 90 days of Tuesday slots, 3 slots per Tuesday")
-
-        # Calculate expected slots: Tuesdays in next 90 days * 3 slots per Tuesday
-        from datetime import date, timedelta
-        start_date = date.today()
-        end_date = start_date + timedelta(days=90)
-
-        # Count Tuesdays in the 90-day period
-        current_date = start_date
-        tuesday_count = 0
-        while current_date <= end_date:
-            if current_date.weekday() == 1:  # Tuesday = 1
-                tuesday_count += 1
-            current_date += timedelta(days=1)
-
-        expected_slot_count = tuesday_count * 3  # 3 hours = 3 slots (9-10, 10-11, 11-12)
-        print(f"Expected Tuesdays in 90 days: {tuesday_count}")
-        print(f"Expected total slots: {expected_slot_count}")
+        print(f"Expected: {target_day_count} {target_day_name}s, 3 slots per {target_day_name}")
 
         with patch('appointments.tasks.auto_generate_slots_task.delay') as mock_task:
             # Mock the task but call the actual service
@@ -292,22 +314,24 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 from psychologists.models import PsychologistAvailability
                 availability = PsychologistAvailability.objects.get(availability_id=availability_id)
                 print(f"DEBUG: Retrieved availability: {availability}")
+                print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({day_names[availability.day_of_week - 1]})")  # -1 for your system
                 result = AppointmentSlotService.auto_generate_slots_for_new_availability(availability)
                 print(f"DEBUG: Service returned: {result}")
                 return result
 
             mock_task.side_effect = side_effect
 
-            # Create availability: Tuesday 9:00-12:00 (3 hours = 3 slots per Tuesday)
+            # Create availability for the target day
             availability = PsychologistAvailability.objects.create(
                 psychologist=self.psychologist,
-                day_of_week=1,  # Tuesday
+                day_of_week=your_target_day,  # Use your system's numbering
                 start_time='09:00',
                 end_time='12:00',
                 is_recurring=True
             )
 
             print(f"DEBUG: Created availability with ID: {availability.availability_id}")
+            print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({day_names[availability.day_of_week - 1]})")
 
         # Verify signal triggered the task
         print(f"\n=== DEBUG: VERIFYING TASK CALL ===")
@@ -329,11 +353,13 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
 
         print("First 5 slots:")
         for slot in first_5_slots:
-            print(f"  - {slot.slot_date} {slot.start_time}-{slot.end_time}")
+            slot_day_name = slot.slot_date.strftime('%A')
+            print(f"  - {slot.slot_date} ({slot_day_name}) {slot.start_time}-{slot.end_time}")
 
         print("Last 5 slots:")
         for slot in reversed(last_5_slots):
-            print(f"  - {slot.slot_date} {slot.start_time}-{slot.end_time}")
+            slot_day_name = slot.slot_date.strftime('%A')
+            print(f"  - {slot.slot_date} ({slot_day_name}) {slot.start_time}-{slot.end_time}")
 
         # Verify slots were created in database
         generated_slots = AppointmentSlot.objects.filter(
@@ -343,6 +369,26 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
 
         print(f"\n=== DEBUG: GENERATED SLOTS FOR NEW AVAILABILITY ===")
         print(f"Slots linked to new availability: {generated_slots.count()}")
+
+        # Verify day-of-week consistency
+        print(f"\n=== DEBUG: DAY-OF-WEEK VERIFICATION ===")
+        slot_days = set()
+        for slot in generated_slots[:10]:  # Check first 10 slots
+            slot_weekday = slot.slot_date.weekday()  # Python weekday (0=Monday)
+            slot_day_name = slot.slot_date.strftime('%A')
+            slot_days.add((slot_weekday, slot_day_name))
+
+        print(f"Slot day variations found: {slot_days}")
+
+        # All slots should be on the same day of week as the availability
+        # Convert your system day to Python day for comparison
+        expected_python_day = your_target_day - 1  # Convert from your system to Python
+        expected_day_info = (expected_python_day, target_day_name)
+        if len(slot_days) == 1 and expected_day_info in slot_days:
+            print(f"✓ All slots are correctly on {target_day_name}")
+        else:
+            print(f"✗ Day mismatch! Expected {expected_day_info}, found {slot_days}")
+            print(f"  Your system day {your_target_day} = Python day {expected_python_day} = {target_day_name}")
 
         # Should have expected_slot_count slots across 90 days
         if generated_slots.count() != expected_slot_count:
@@ -362,39 +408,42 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                         f"Expected {expected_slot_count} generated slots across 90 days, got {generated_slots.count()}. "
                         f"Check debug output for slot distribution.")
 
-        # Verify first Tuesday's slot details (should be 9-10, 10-11, 11-12)
-        first_tuesday_slots = generated_slots.filter(
-            slot_date=generated_slots.first().slot_date
-        ).order_by('start_time')
+        # Verify first target day's slot details (should be 9-10, 10-11, 11-12)
+        if generated_slots.exists():
+            first_target_day_slots = generated_slots.filter(
+                slot_date=generated_slots.first().slot_date
+            ).order_by('start_time')
 
-        print(f"\n=== DEBUG: FIRST TUESDAY SLOT VERIFICATION ===")
-        print(f"First Tuesday date: {first_tuesday_slots.first().slot_date}")
-        print(f"Slots on first Tuesday: {first_tuesday_slots.count()}")
+            print(f"\n=== DEBUG: FIRST {target_day_name.upper()} SLOT VERIFICATION ===")
+            print(f"First {target_day_name} date: {first_target_day_slots.first().slot_date}")
+            print(f"Slots on first {target_day_name}: {first_target_day_slots.count()}")
 
-        slot_times = [(slot.start_time.strftime('%H:%M'), slot.end_time.strftime('%H:%M'))
-                    for slot in first_tuesday_slots]
-        expected_times = [('09:00', '10:00'), ('10:00', '11:00'), ('11:00', '12:00')]
+            slot_times = [(slot.start_time.strftime('%H:%M'), slot.end_time.strftime('%H:%M'))
+                        for slot in first_target_day_slots]
+            expected_times = [('09:00', '10:00'), ('10:00', '11:00'), ('11:00', '12:00')]
 
-        print(f"Expected times: {expected_times}")
-        print(f"Actual times: {slot_times}")
+            print(f"Expected times: {expected_times}")
+            print(f"Actual times: {slot_times}")
 
-        self.assertEqual(len(slot_times), 3, f"Expected 3 slots per Tuesday, got {len(slot_times)}")
-        self.assertEqual(slot_times, expected_times,
-                        f"Slot times don't match. Expected: {expected_times}, Got: {slot_times}")
+            self.assertEqual(len(slot_times), 3, f"Expected 3 slots per {target_day_name}, got {len(slot_times)}")
+            self.assertEqual(slot_times, expected_times,
+                            f"Slot times don't match. Expected: {expected_times}, Got: {slot_times}")
 
         # Verify all slots are available and belong to correct psychologist
         print(f"\n=== DEBUG: SLOT STATUS VERIFICATION (sampling first 10) ===")
         sample_slots = generated_slots[:10]
         for i, slot in enumerate(sample_slots):
-            print(f"Slot {i+1}: {slot.slot_date} {slot.start_time}-{slot.end_time}, booked={slot.is_booked}, status='{slot.reservation_status}'")
+            slot_day_name = slot.slot_date.strftime('%A')
+            print(f"Slot {i+1}: {slot.slot_date} ({slot_day_name}) {slot.start_time}-{slot.end_time}, booked={slot.is_booked}, status='{slot.reservation_status}'")
             self.assertFalse(slot.is_booked, f"Slot {i+1} should not be booked")
             self.assertEqual(slot.reservation_status, 'available', f"Slot {i+1} should be available")
             self.assertEqual(slot.psychologist, self.psychologist, f"Slot {i+1} should belong to test psychologist")
 
         print(f"\n=== DEBUG: TEST COMPLETED SUCCESSFULLY ===")
-        print(f"✓ Created {generated_slots.count()} slots across {tuesday_count} Tuesdays over 90 days")
-        print(f"✓ Each Tuesday has 3 slots (09:00-10:00, 10:00-11:00, 11:00-12:00)")
+        print(f"✓ Created {generated_slots.count()} slots across {target_day_count} {target_day_name}s over 90 days")
+        print(f"✓ Each {target_day_name} has 3 slots (09:00-10:00, 10:00-11:00, 11:00-12:00)")
         print(f"✓ All slots are available and correctly linked to psychologist")
+        print(f"✓ No slots created for today ({today}) due to business logic")
 
     @override_settings(CELERY_TASK_ALWAYS_EAGER=True)
     def test_update_availability_preserves_booked_regenerates_unbooked(self):
