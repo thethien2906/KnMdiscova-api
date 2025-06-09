@@ -694,15 +694,20 @@ class PsychologistAvailabilityViewSet(GenericViewSet):
                     'suggestion': _('Cancel or complete the associated appointments first')
                 }, status=status.HTTP_400_BAD_REQUEST)
 
-            # Perform safe deletion
+             # Perform safe deletion
             result = PsychologistService.delete_availability_block_safe(availability)
+            print(f"DEBUG VIEW: Service returned result = {result}")
 
             logger.info(f"Availability block deleted: {pk} by {request.user.email}")
-            return Response({
+
+            response_data = {
                 'message': _('Availability block deleted successfully'),
-                'deleted_slots': result['deleted_slots'],
+                'deleted_slots': result['deleted_slots'],  # ⭐ Check this value
                 'impact': result['impact']
-            }, status=status.HTTP_200_OK)
+            }
+            print(f"DEBUG VIEW: About to return response_data = {response_data}")
+
+            return Response(response_data, status=status.HTTP_200_OK)
 
         except AvailabilityManagementError as e:
             return Response({

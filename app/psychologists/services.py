@@ -778,21 +778,21 @@ class PsychologistService:
 
     @staticmethod
     def delete_availability_block_safe(availability: PsychologistAvailability) -> Dict[str, Any]:
-        """
-        Safely delete availability block with proper validation
-        """
         try:
             with transaction.atomic():
+                # DEBUG: Check initial state
+                print(f"DEBUG SERVICE: Starting deletion for availability {availability.availability_id}")
+
                 # Get deletion impact first
                 impact = availability.get_deletion_impact()
+                print(f"DEBUG SERVICE: Impact = {impact}")
 
                 if not impact['can_delete']:
-                    raise AvailabilityManagementError(
-                        f"Cannot delete availability block: {impact['booked_slots']} slots have active bookings"
-                    )
+                    raise AvailabilityManagementError(f"Cannot delete availability block: {impact['booked_slots']} slots have active bookings")
 
                 # Use the safe delete method
                 result = availability.safe_delete_with_cleanup()
+                print(f"DEBUG SERVICE: safe_delete_with_cleanup returned = {result}")
 
                 if result['success']:
                     logger.info(f"Availability block safely deleted: {result['block_info']}")

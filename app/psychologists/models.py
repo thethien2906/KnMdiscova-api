@@ -778,6 +778,7 @@ class PsychologistAvailability(models.Model):
     def safe_delete_with_cleanup(self):
         """Alternative method for controlled deletion with detailed response"""
         impact = self.get_deletion_impact()
+        print(f"DEBUG MODEL: Impact before deletion = {impact}")
 
         if not impact['can_delete']:
             return {
@@ -787,7 +788,14 @@ class PsychologistAvailability(models.Model):
             }
 
         # Delete unbooked slots
-        unbooked_deleted = self.generated_slots.filter(is_booked=False).delete()[0]
+        unbooked_slots_query = self.generated_slots.filter(is_booked=False)
+        slots_to_delete_count = unbooked_slots_query.count()
+        print(f"DEBUG MODEL: Slots to delete count = {slots_to_delete_count}")
+
+        # Delete unbooked slots
+        unbooked_deleted_result = unbooked_slots_query.delete()
+        print(f"DEBUG MODEL: Unbooked slots deletion result = {unbooked_deleted_result}")
+        print(f"DEBUG MODEL: Using pre-counted slots = {slots_to_delete_count}")
 
         # Delete the availability block
         block_info = {
@@ -795,13 +803,18 @@ class PsychologistAvailability(models.Model):
             'day_name': self.get_day_name() if self.is_recurring else str(self.specific_date),
             'time_range': self.get_time_range_display()
         }
+        print(f"DEBUG MODEL: About to delete availability block = {block_info}")
 
-        self.delete()
+        block_deletion_result = self.delete()
+        print(f"DEBUG MODEL: Availability block deletion result = {block_deletion_result}")
 
-        return {
-            'success': True,
-            'message': f"Availability block deleted successfully",
-            'deleted_slots': unbooked_deleted,
-            'block_info': block_info,
-            'impact': impact
-        }
+        result = {
+        'success': True,
+        'message': f"Availability block deleted successfully",
+        'deleted_slots': slots_to_delete_count,  # ✅ Use pre-counted value (2)
+        'block_info': block_info,
+        'impact': impact
+    }
+        print(f"DEBUG MODEL: Final result = {result}")
+
+        return result
