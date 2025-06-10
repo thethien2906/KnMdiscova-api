@@ -799,16 +799,20 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         # Step 2: Calculate proper Tuesday dates
         today = date.today()
 
-        def get_tuesday_offset(days_offset):
-            target_date = today + timedelta(days=days_offset)
-            days_since_tuesday = (target_date.weekday() - 1) % 7
-            tuesday_date = target_date - timedelta(days=days_since_tuesday)
-            return tuesday_date
+        def get_tuesday_date(weeks_offset):
+            """Get a Tuesday that is exactly 'weeks_offset' weeks from this week's Tuesday"""
+            # Find this week's Tuesday
+            days_since_tuesday = (today.weekday() - 1) % 7
+            this_tuesday = today - timedelta(days=days_since_tuesday)
 
-        past_tuesday_1 = get_tuesday_offset(-14)  # Tuesday ~2 weeks ago
-        past_tuesday_2 = get_tuesday_offset(-7)   # Tuesday ~1 week ago
-        future_tuesday_1 = get_tuesday_offset(7)  # Tuesday ~1 week from now
-        future_tuesday_2 = get_tuesday_offset(14) # Tuesday ~2 weeks from now
+            # Add the week offset
+            target_tuesday = this_tuesday + timedelta(weeks=weeks_offset)
+            return target_tuesday
+
+        past_tuesday_1 = get_tuesday_date(-3)  # 3 weeks ago (definitely > 7 days)
+        past_tuesday_2 = get_tuesday_date(-2)  # 2 weeks ago (definitely > 7 days)
+        future_tuesday_1 = get_tuesday_date(1)  # 1 week from now
+        future_tuesday_2 = get_tuesday_date(2)  # 2 weeks from now
 
         print(f"\n=== DEBUG: CREATING TEST SLOTS ===")
         print(f"Today: {today} ({today.strftime('%A')})")
