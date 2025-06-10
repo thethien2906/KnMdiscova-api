@@ -6,6 +6,8 @@ from django.core.exceptions import ValidationError
 from django.utils import timezone
 from datetime import date
 from users.models import User
+import logging
+logger = logging.getLogger(__name__)
 
 
 class Psychologist(models.Model):
@@ -725,3 +727,94 @@ class PsychologistAvailability(models.Model):
             return self.day_of_week == day_of_week
         else:
             return self.specific_date == target_date
+
+    def can_be_deleted(self):
+        """Check if availability block can be safely deleted"""
+        booked_slots = self.generated_slots.filter(is_booked=True)
+        return not booked_slots.exists()
+
+    def get_deletion_impact(self):
+        """Get information about what would be affected by deletion"""
+        total_slots = self.generated_slots.count()
+        booked_slots = self.generated_slots.filter(is_booked=True).count()
+        unbooked_slots = total_slots - booked_slots
+
+        return {
+            'total_slots': total_slots,
+            'booked_slots': booked_slots,
+            'unbooked_slots': unbooked_slots,
+            'can_delete': booked_slots == 0,
+            'booked_appointments': self.generated_slots.filter(
+                is_booked=True
+            ).prefetch_related('appointments').count()
+        }
+
+    def delete(self, *args, **kwargs):
+        """Override delete to handle slot cleanup properly"""
+        from django.core.exceptions import ValidationError
+
+        # Check if there are booked slots
+        booked_slots = self.generated_slots.filter(is_booked=True)
+
+        if booked_slots.exists():
+            booked_count = booked_slots.count()
+            raise ValidationError(
+                f"Cannot delete availability block: {booked_count} slots have active bookings. "
+                f"Cancel or complete the appointments first."
+            )
+
+        # Delete only unbooked slots first
+        unbooked_slots_deleted = self.generated_slots.filter(is_booked=False).delete()[0]
+
+        # Now safe to delete the availability block
+        result = super().delete(*args, **kwargs)
+
+        logger.info(
+            f"Deleted availability block {self.availability_id} and {unbooked_slots_deleted} unbooked slots"
+        )
+
+        return result
+
+    def safe_delete_with_cleanup(self):
+        """Alternative method for controlled deletion with detailed response"""
+        impact = self.get_deletion_impact()
+        print(f"DEBUG MODEL: Impact before deletion = {impact}")
+
+        if not impact['can_delete']:
+            return {
+                'success': False,
+                'message': f"Cannot delete: {impact['booked_slots']} slots have active bookings",
+                'impact': impact
+            }
+
+        # Delete unbooked slots
+        unbooked_slots_query = self.generated_slots.filter(is_booked=False)
+        slots_to_delete_count = unbooked_slots_query.count()
+        print(f"DEBUG MODEL: Slots to delete count = {slots_to_delete_count}")
+
+        # Delete unbooked slots
+        unbooked_deleted_result = unbooked_slots_query.delete()
+        print(f"DEBUG MODEL: Unbooked slots deletion result = {unbooked_deleted_result}")
+        print(f"DEBUG MODEL: Using pre-counted slots = {slots_to_delete_count}")
+
+        # Delete the availability block
+        block_info = {
+            'availability_id': self.availability_id,
+            'day_name': self.get_day_name() if self.is_recurring else str(self.specific_date),
+            'time_range': self.get_time_range_display()
+        }
+        print(f"DEBUG MODEL: About to delete availability block = {block_info}")
+
+        block_deletion_result = self.delete()
+        print(f"DEBUG MODEL: Availability block deletion result = {block_deletion_result}")
+
+        result = {
+        'success': True,
+        'message': f"Availability block deleted successfully",
+        'deleted_slots': slots_to_delete_count,  # ✅ Use pre-counted value (2)
+        'block_info': block_info,
+        'impact': impact
+    }
+        print(f"DEBUG MODEL: Final result = {result}")
+
+        return result

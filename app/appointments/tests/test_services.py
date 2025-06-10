@@ -75,13 +75,32 @@ class AppointmentSlotServiceTest(TestCase):
 
     def test_generate_slots_from_recurring_availability(self):
         """Test slot generation from recurring availability block"""
-        date_from = date.today()
-        date_to = date_from + timedelta(days=7)
+        # Use fixed future dates to ensure consistent behavior
+        # Pick a specific Monday in the future for predictable testing
+        base_date = date(2025, 6, 16)  # A known Monday
+        date_from = base_date
+        date_to = base_date + timedelta(days=6)  # One week, ensuring only one Monday
+
+        print(f"\n=== DEBUG INFO ===")
+        print(f"Date range: {date_from} to {date_to}")
+        print(f"Base date {base_date} is weekday: {base_date.weekday()} (0=Monday)")
+
+        # Debug: Print availability block details
+        print(f"Availability block details:")
+        print(f"  - Day of week: {self.availability_block.day_of_week}")
+        print(f"  - Start time: {self.availability_block.start_time}")
+        print(f"  - End time: {self.availability_block.end_time}")
+        print(f"  - Is recurring: {self.availability_block.is_recurring}")
+
         slots = AppointmentSlotService.generate_slots_from_availability_block(
             self.availability_block, date_from, date_to
         )
 
-        # Should generate slots for Monday within the date range
+        print(f"\nTotal slots generated: {len(slots)}")
+        for i, slot in enumerate(slots):
+            print(f"  Slot {i+1}: {slot.slot_date} ({slot.slot_date.weekday()}) {slot.start_time}-{slot.end_time}")
+
+        # Should generate slots
         self.assertGreater(len(slots), 0)
 
         # Sort slots by start_time to check them in order
@@ -93,18 +112,28 @@ class AppointmentSlotServiceTest(TestCase):
             self.assertEqual(slot.availability_block, self.availability_block)
             self.assertFalse(slot.is_booked)
 
+        # Filter Monday slots (weekday 0 = Monday)
+        monday_slots = [s for s in slots if s.slot_date.weekday() == 0]
+
+        print(f"\nMonday slots found: {len(monday_slots)}")
+
+        # With our fixed date range (one Monday), we should have exactly 3 slots
+        expected_slots = 3  # 9-10, 10-11, 11-12
+        self.assertEqual(len(monday_slots), expected_slots,
+                        f"Expected {expected_slots} Monday slots but got {len(monday_slots)}")
+
         # Check that first slot starts at 9 AM
-        first_slot = slots[0]
-        self.assertEqual(first_slot.start_time.hour, 9)
+        if monday_slots:
+            first_slot = monday_slots[0]
+            self.assertEqual(first_slot.start_time.hour, 9)
 
-        # Check that we have the expected number of slots (9-10, 10-11, 11-12 = 3 slots)
-        monday_slots = [s for s in slots if s.slot_date.weekday() == 0]  # Monday = 0
-        self.assertEqual(len(monday_slots), 3)
-
-        # Verify the time progression
+        # Verify the time progression (all slots should be on the same Monday)
         expected_hours = [9, 10, 11]
         for i, slot in enumerate(monday_slots):
-            self.assertEqual(slot.start_time.hour, expected_hours[i])
+            self.assertEqual(slot.start_time.hour, expected_hours[i],
+                            f"Slot {i+1} should start at {expected_hours[i]}:00, got {slot.start_time}")
+            # Verify all slots are on the same date (the Monday we expect)
+            self.assertEqual(slot.slot_date, base_date)
 
     def test_generate_slots_for_specific_date_availability(self):
         """Test slot generation from specific date availability"""

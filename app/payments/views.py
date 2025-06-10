@@ -14,7 +14,7 @@ from django.utils.decorators import method_decorator
 from django.views.decorators.csrf import csrf_exempt
 from django.http import HttpResponse
 import json
-
+from app.settings import base
 from .models import Order, Payment, Transaction
 from .serializers import (
     OrderSerializer,
@@ -250,6 +250,9 @@ class OrderViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
                 try:
                     payment_data = serializer.save()
 
+                    stripe_config = base.PAYMENT_PROVIDERS.get('STRIPE', {})
+                    if stripe_config.get('ENABLED') and 'PUBLISHABLE_KEY' in stripe_config:
+                        payment_data['stripe_publishable_key'] = stripe_config['PUBLISHABLE_KEY']
                     logger.info(f"Payment initiated for order {order.order_id} by user {request.user.email}")
                     return Response({
                         'message': _('Payment initiated successfully'),

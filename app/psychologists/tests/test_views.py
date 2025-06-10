@@ -453,7 +453,10 @@ class PsychologistAvailabilityViewSetTests(APITestCase):
         url = reverse('psychologist-availability-detail', kwargs={'pk': self.availability.availability_id})
         response = self.client.delete(url)
 
-        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        # And verify the response content:
+        self.assertIn('message', response.data)
+        self.assertEqual(response.data['message'], 'Availability block deleted successfully')
         self.assertFalse(PsychologistAvailability.objects.filter(
             availability_id=self.availability.availability_id
         ).exists())
