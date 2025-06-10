@@ -306,11 +306,11 @@ class AppointmentUpdateSerializer(serializers.ModelSerializer):
 
         if request:
             # Validate appointment can be updated
-            if instance and instance.appointment_status == 'Completed':
-                # Only notes can be updated for completed appointments
+            if instance and instance.appointment_status in ['Completed', 'Cancelled', 'No_Show']:
+                # Only notes can be updated for concluded appointments
                 if 'cancellation_reason' in attrs:
                     raise serializers.ValidationError({
-                        'cancellation_reason': _("Cannot modify cancellation reason for completed appointments")
+                        'cancellation_reason': _("Cannot modify cancellation reason for concluded appointments")
                     })
 
         return attrs
@@ -553,3 +553,78 @@ class AppointmentCancellationSerializer(serializers.Serializer):
             )
 
         return attrs
+
+class NoShowSerializer(serializers.Serializer):
+    """
+    Serializer for marking appointments as no-show
+    """
+    reason = serializers.CharField(
+        max_length=500,
+        required=False,
+        allow_blank=True,
+        help_text=_("Optional reason for marking as no-show")
+    )
+
+    def validate(self, attrs):
+        """Validate no-show operation"""
+        request = self.context.get('request')
+        appointment = self.context.get('appointment')
+
+        if not appointment:
+            raise serializers.ValidationError(_("Appointment not found"))
+
+        # Check if user is the psychologist for this appointment
+        if (request and request.user.user_type == 'Psychologist' and
+            hasattr(request.user, 'psychologist_profile')):
+            if appointment.psychologist != request.user.psychologist_profile:
+                raise serializers.ValidationError(_("You can only mark your own appointments as no-show"))
+        elif not (request and (request.user.is_admin or request.user.is_staff)):
+            raise serializers.ValidationError(_("Only the assigned psychologist can mark appointments as no-show"))
+
+        # Check if appointment can be marked as no-show
+        if not appointment.can_be_marked_no_show:
+            raise serializers.ValidationError(_("Appointment cannot be marked as no-show at this time"))
+
+        return attrs
+
+    def save(self):
+        """Mark appointment as no-show"""
+        appointment = self.context.get('appointment')
+        reason = self.validated_data.get('reason', '')
+
+        appointment.mark_as_no_show(reason)
+        return appointment
+
+
+class StartOnlineSessionSerializer(serializers.Serializer):
+    """
+    Serializer for starting online sessions
+    """
+
+    def validate(self, attrs):
+        """Validate start online session operation"""
+        request = self.context.get('request')
+        appointment = self.context.get('appointment')
+
+        if not appointment:
+            raise serializers.ValidationError(_("Appointment not found"))
+
+        # Check if user is the psychologist for this appointment
+        if (request and request.user.user_type == 'Psychologist' and
+            hasattr(request.user, 'psychologist_profile')):
+            if appointment.psychologist != request.user.psychologist_profile:
+                raise serializers.ValidationError(_("You can only start your own online sessions"))
+        elif not (request and (request.user.is_admin or request.user.is_staff)):
+            raise serializers.ValidationError(_("Only the assigned psychologist can start online sessions"))
+
+        # Check if session can be started
+        if not appointment.can_start_online_session:
+            raise serializers.ValidationError(_("Online session cannot be started at this time"))
+
+        return attrs
+
+    def save(self):
+        """Start online session"""
+        appointment = self.context.get('appointment')
+        appointment.start_online_session()
+        return appointment

@@ -448,9 +448,17 @@ class IsPsychologistAppointmentProvider(permissions.BasePermission):
         """
         Check if psychologist is the one providing this appointment
         """
-        if hasattr(request.user, 'psychologist_profile'):
-            return obj.psychologist == request.user.psychologist_profile
-        return False
+        # Handle case where obj might be None or not have expected attributes
+        if obj is None:
+            return False
+
+        try:
+            if hasattr(request.user, 'psychologist_profile'):
+                return obj.psychologist == request.user.psychologist_profile
+            return False
+        except AttributeError:
+            # If obj doesn't have the expected attributes, deny permission
+            return False
 
 
 class IsParentAppointmentBooker(permissions.BasePermission):
