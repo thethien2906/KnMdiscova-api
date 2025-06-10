@@ -275,3 +275,27 @@ CELERY_BEAT_SCHEDULE = {
         'options': {'expires': 3600},  # Task expires in 1 hour if not executed
     },
 }
+
+
+# Google OAuth Configuration
+GOOGLE_OAUTH2_CLIENT_ID = os.environ.get('GOOGLE_OAUTH2_CLIENT_ID')
+GOOGLE_OAUTH2_CLIENT_SECRET = os.environ.get('GOOGLE_OAUTH2_CLIENT_SECRET')
+
+# Validation for required Google OAuth settings
+if not GOOGLE_OAUTH2_CLIENT_ID or not GOOGLE_OAUTH2_CLIENT_SECRET:
+    if not ('test' in sys.argv or 'pytest' in sys.modules):
+        import warnings
+        warnings.warn(
+            "Google OAuth credentials not configured. Google authentication will be disabled.",
+            UserWarning
+        )
+
+# OAuth scopes
+GOOGLE_OAUTH2_SCOPES = [
+    'openid',
+    'email',
+    'profile',
+]
+
+# Additional OAuth settings
+GOOGLE_OAUTH2_USE_DEPRECATED_PYOPENSSL = False

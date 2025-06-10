@@ -12,6 +12,16 @@ from functools import wraps
 from .models import User
 from .tokens import token_generator
 from django.conf import settings
+
+from .google_auth_service import GoogleAuthService
+from .exceptions import (
+    InvalidGoogleTokenError,
+    GoogleUserInfoError,
+    EmailAlreadyExistsError,
+    GoogleEmailNotVerifiedError,
+    UserTypeRequiredError,
+    GoogleConfigurationError
+)
 # Set up logging
 logger = logging.getLogger(__name__)
 
@@ -334,7 +344,107 @@ class AuthenticationService:
             recipient_email=user.email
         )
 
+    @staticmethod
+    def google_authenticate(google_token: str, user_type: str = None) -> Tuple[User, bool, str]:
+        """
+        Authenticate user with Google OAuth token.
 
+        Args:
+            google_token: Google ID token from client
+            user_type: Required for new user registration
+
+        Returns:
+            Tuple of (User, is_new_user, action_taken)
+
+        Raises:
+            Various Google auth exceptions
+        """
+        try:
+            return GoogleAuthService.google_login_or_register(google_token, user_type)
+        except Exception as e:
+            logger.error(f"Google authentication failed: {str(e)}")
+            raise
+
+    @staticmethod
+    def link_google_account(user: User, google_token: str) -> User:
+        """
+        Link Google account to existing user.
+
+        Args:
+            user: Existing authenticated user
+            google_token: Google ID token
+
+        Returns:
+            Updated user instance
+
+        Raises:
+            InvalidGoogleTokenError: If token is invalid
+            EmailAlreadyExistsError: If Google email doesn't match user email
+        """
+        try:
+            # Verify Google token
+            google_user_info = GoogleAuthService.verify_google_token(google_token)
+
+            # Ensure Google email matches user email
+            if google_user_info['email'].lower() != user.email.lower():
+                raise EmailAlreadyExistsError(
+                    google_user_info['email'],
+                    "Different email address"
+                )
+
+            # Check if Google ID is already linked to another account
+            google_id = google_user_info['google_id']
+            existing_user = User.objects.filter(google_id=google_id).first()
+            if existing_user and existing_user.id != user.id:
+                raise EmailAlreadyExistsError(
+                    google_user_info['email'],
+                    "Google account already linked to another user"
+                )
+
+            # Link the account
+            user.google_id = google_id
+            if google_user_info.get('picture') and not user.profile_picture_url:
+                user.profile_picture_url = google_user_info['picture']
+            user.is_verified = True
+            user.save(update_fields=['google_id', 'profile_picture_url', 'is_verified', 'updated_at'])
+
+            logger.info(f"Google account linked successfully for user: {user.email}")
+            return user
+
+        except Exception as e:
+            logger.error(f"Failed to link Google account for user {user.email}: {str(e)}")
+            raise
+
+    @staticmethod
+    def unlink_google_account(user: User) -> User:
+        """
+        Unlink Google account from user.
+
+        Args:
+            user: User with linked Google account
+
+        Returns:
+            Updated user instance
+
+        Raises:
+            ValueError: If user doesn't have Google account linked or no password auth
+        """
+        if not user.google_id:
+            raise ValueError("User doesn't have Google account linked")
+
+        if not user.has_password_auth:
+            raise ValueError("Cannot unlink Google: user has no password authentication")
+
+        try:
+            user.google_id = None
+            user.save(update_fields=['google_id', 'updated_at'])
+
+            logger.info(f"Google account unlinked successfully for user: {user.email}")
+            return user
+
+        except Exception as e:
+            logger.error(f"Failed to unlink Google account for user {user.email}: {str(e)}")
+            raise
 class UserService:
     """
     Service class for user-related business logic

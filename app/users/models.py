@@ -32,6 +32,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         unique=True,
         help_text=_("User's email address, used for login")
     )
+    google_id = models.CharField(
+        _('google id'),
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text=_("Google account identifier for OAuth authentication")
+    )
     user_type = models.CharField(
         max_length=20,
         choices=USER_TYPE_CHOICES,
@@ -107,6 +115,7 @@ class User(AbstractBaseUser, PermissionsMixin):
             models.Index(fields=['user_type']),
             models.Index(fields=['is_active', 'is_verified']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['google_id']),
         ]
 
     def __str__(self):
@@ -126,3 +135,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     def is_admin(self):
         """Check if user is an admin"""
         return self.user_type == 'Admin'
+
+    @property
+    def is_google_user(self):
+        """Check if user registered/authenticated via Google"""
+        return bool(self.google_id)
+
+    @property
+    def has_password_auth(self):
+        """Check if user has password authentication"""
+        return bool(self.password)
