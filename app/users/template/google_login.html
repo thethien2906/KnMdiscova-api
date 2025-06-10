@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Google Sign-In Test</title>
+    <script src="https://accounts.google.com/gsi/client" async defer></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #4285f4;
+        }
+        #g_id_onload {
+            margin: 20px 0;
+        }
+        .token-display {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #4285f4;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .user-info {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #28a745;
+            margin: 10px 0;
+        }
+        .api-test {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #ffc107;
+            margin: 10px 0;
+        }
+        button {
+            background: #4285f4;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #3367d6;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        select, input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .response {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🔐 Google Sign-In Test for Django API</h1>
+
+        <div class="section">
+            <h3>Step 1: Configure Your Google Client ID</h3>
+            <p>Replace <code>YOUR_GOOGLE_CLIENT_ID</code> in the script below with your actual Google OAuth Client ID:</p>
+            <input type="text" id="clientId" placeholder="Enter your Google Client ID" style="width: 100%; margin: 10px 0;">
+            <button onclick="initializeGoogleSignIn()">Initialize Google Sign-In</button>
+        </div>
+
+        <div class="section">
+            <h3>Step 2: Sign in with Google</h3>
+            <div id="g_id_onload"></div>
+            <div id="g_id_signin"></div>
+            <p><em>Click the button above to sign in with Google</em></p>
+        </div>
+
+        <div class="section">
+            <h3>Step 3: Token Information</h3>
+            <div id="tokenInfo" style="display: none;">
+                <h4>ID Token (Use this for your API):</h4>
+                <div class="token-display" id="idToken"></div>
+
+                <h4>Decoded Token Info:</h4>
+                <div class="user-info" id="userInfo"></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Step 4: Test Your Django API</h3>
+            <div id="apiTest" style="display: none;">
+                <input type="text" id="apiUrl" placeholder="Your API URL (e.g., http://localhost:8000/api/auth/google_auth/)" style="width: 70%;">
+                <select id="userType">
+                    <option value="">Select User Type (for new users)</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Psychologist">Psychologist</option>
+                    <option value="Admin">Admin</option>
+                </select>
+                <br>
+                <button onclick="testDjangoAPI()">Test Django API</button>
+                <div id="apiResponse"></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Using Your Token from OAuth Playground</h3>
+            <p>From your OAuth Playground response, use this <strong>ID Token</strong>:</p>
+            <div class="token-display">
+eyJhbGciOiJSUzI1NiIsImtpZCI6ImJiNDM0Njk1OTQ0NTE4MjAxNDhiMzM5YzU4OGFlZGUzMDUxMDM5MTkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhenAiOiI0MDc0MDg3MTgxOTIuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJhdWQiOiI0MDc0MDg3MTgxOTIuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJzdWIiOiIxMDQxMjAxNzk3OTA2NTQxMTM2MjQiLCJlbWFpbCI6InRyaW5odHJhbnRoZXRoaWVuQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJhdF9oYXNoIjoiVjRGb0dzMDlxeEtsRTJaR1Q1T2NiZyIsIm5hbWUiOiJUcmluaCBUaGllbiIsInBpY3R1cmUiOiJodHRwczovL2xoMy5nb29nbGV1c2VyY29udGVudC5jb20vYS9BQ2c4b2NJQnlmQU5LZG14M1VTV0hkUnRtd09QMDl3ZVU1T0VhRW9OM0dFVlFkbThRbnNFam5FPXM5Ni1jIiwiZ2l2ZW5fbmFtZSI6IlRyaW5oIiwiZmFtaWx5X25hbWUiOiJUaGllbiIsImlhdCI6MTc0OTU0MjA4OSwiZXhwIjoxNzQ5NTQ1Njg5fQ.d3kqqxEr8rXSV3asdu0qQSeHUN_BaejK1HHQCMJlhqAhIl8vQL3Xzpfq9iQXBVnQFmI-5OmUIUdyq8BY8aKllOicc0BugpoL1xphCEZeDSR4XlB9uZAFTl-7MS4J03SuC1Cl-ed7mODxYSii5suVRSWMbd2HlvKXHZBJFUJ-pREllDPMcfMWoUY1l-mlGme0lcbJfeKefwfJfdfdzRBLgoIDyeJpqWA1YtpOnA7bzJu1Dcah_HX_JbiJ2QLttd8MkqcTB2V1qqYTOdUsCLLSrVw6UCtNyyzor4Y9PktIzGRgRdPHChhdn3kBBAm7QJ8e3ZAlP99osE7mEAjVEiSgxw
+            </div>
+            <button onclick="testWithPlaygroundToken()">Test with This Token</button>
+        </div>
+    </div>
+
+    <script>
+        let currentToken = null;
+
+        function initializeGoogleSignIn() {
+            const clientId = document.getElementById('clientId').value.trim();
+            if (!clientId) {
+                alert('Please enter your Google Client ID');
+                return;
+            }
+
+            // Initialize Google Sign-In
+            google.accounts.id.initialize({
+                client_id: clientId,
+                callback: handleCredentialResponse
+            });
+
+            // Render the sign-in button
+            google.accounts.id.renderButton(
+                document.getElementById("g_id_signin"),
+                {
+                    theme: "outline",
+                    size: "large",
+                    width: 250
+                }
+            );
+
+            // Auto sign-in prompt
+            google.accounts.id.prompt();
+        }
+
+        function handleCredentialResponse(response) {
+            console.log("Encoded JWT ID token: " + response.credential);
+            currentToken = response.credential;
+
+            // Display token
+            document.getElementById('idToken').textContent = response.credential;
+
+            // Decode and display user info
+            const payload = JSON.parse(atob(response.credential.split('.')[1]));
+            document.getElementById('userInfo').innerHTML =
+                `<strong>Email:</strong> ${payload.email}<br>
+                 <strong>Name:</strong> ${payload.name}<br>
+                 <strong>Google ID:</strong> ${payload.sub}<br>
+                 <strong>Email Verified:</strong> ${payload.email_verified}<br>
+                 <strong>Picture:</strong> <img src="${payload.picture}" width="50" height="50"><br>
+                 <strong>Expires:</strong> ${new Date(payload.exp * 1000).toLocaleString()}`;
+
+            // Show token info and API test sections
+            document.getElementById('tokenInfo').style.display = 'block';
+            document.getElementById('apiTest').style.display = 'block';
+        }
+
+        async function testDjangoAPI() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const userType = document.getElementById('userType').value;
+
+            if (!apiUrl) {
+                alert('Please enter your API URL');
+                return;
+            }
+
+            if (!currentToken) {
+                alert('Please sign in with Google first');
+                return;
+            }
+
+            const requestData = {
+                google_token: currentToken
+            };
+
+            if (userType) {
+                requestData.user_type = userType;
+            }
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                document.getElementById('apiResponse').innerHTML =
+                    `<div class="response ${response.ok ? '' : 'error'}">
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Response:</strong><br>
+                        ${JSON.stringify(data, null, 2)}
+                    </div>`;
+
+            } catch (error) {
+                document.getElementById('apiResponse').innerHTML =
+                    `<div class="response error">
+                        <strong>Error:</strong> ${error.message}
+                    </div>`;
+            }
+        }
+
+        function testWithPlaygroundToken() {
+            const playgroundToken = "eyJhbGciOiJSUzI1NiIsImtpZCI6ImJiNDM0Njk1OTQ0NTE4MjAxNDhiMzM5YzU4OGFlZGUzMDUxMDM5MTkiLCJ0eXAiOiJKV1QifQ.eyJpc3MiOiJodHRwczovL2FjY291bnRzLmdvb2dsZS5jb20iLCJhenAiOiI0MDc0MDg3MTgxOTIuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJhdWQiOiI0MDc0MDg3MTgxOTIuYXBwcy5nb29nbGV1c2VyY29udGVudC5jb20iLCJzdWIiOiIxMDkyMDA5MjY0MTQxODIxNzYxMDAiLCJlbWFpbCI6InRoZXRoaWVuMTAwQGdtYWlsLmNvbSIsImVtYWlsX3ZlcmlmaWVkIjp0cnVlLCJhdF9oYXNoIjoiaVg1bVk4bWpVV2VxcEJ2Y21neEFiZyIsIm5hbWUiOiJCZXJ0aG9sZHQiLCJwaWN0dXJlIjoiaHR0cHM6Ly9saDMuZ29vZ2xldXNlcmNvbnRlbnQuY29tL2EvQUNnOG9jSThkOWhMeUl4RFV1bDl0TkFYQnB0VE0xamlQVWRZTEZhajNiY255VzhhcXhZYmNMckg9czk2LWMiLCJnaXZlbl9uYW1lIjoiQmVydGhvbGR0IiwiaWF0IjoxNzQ5NTQzMDQ2LCJleHAiOjE3NDk1NDY2NDZ9.KvoSzl53qkj2eqWgEs1tuyrGzQgXFwRLswAWR1d1ISJJSXSuS6yHYzCc2AMGqsRg9ydcrWZfzqyS06A77XVh0C_hy9m5xKFB8mBdN8BX88WEMuCtiw7YtM9kkqV4gUSAhXousPm_cb8DLi96RYjYD9tI-u7_Ul3FW5xfP7W0O7dph7OzXwzh4wevhkWZguicewmA53ZTxSdCqW4kU3sUkpS8r_DNIz2dXZhZ-UyMvS6-LUqE6LnNUeKiKwuo1Y7LgnFVaXwrzoJE8C78pvEfNw1LLJDuyJP3MYZUw06Z4XmbCsjMOfBg5MQvTZtOTB_Dpsa3WfabeUkOBPVtKeUKeg";
+
+            currentToken = playgroundToken;
+
+            // Decode and display user info
+            const payload = JSON.parse(atob(playgroundToken.split('.')[1]));
+            document.getElementById('userInfo').innerHTML =
+                `<strong>Email:</strong> ${payload.email}<br>
+                 <strong>Name:</strong> ${payload.name}<br>
+                 <strong>Google ID:</strong> ${payload.sub}<br>
+                 <strong>Email Verified:</strong> ${payload.email_verified}<br>
+                 <strong>Picture:</strong> <img src="${payload.picture}" width="50" height="50"><br>
+                 <strong>Expires:</strong> ${new Date(payload.exp * 1000).toLocaleString()}`;
+
+            document.getElementById('idToken').textContent = playgroundToken;
+            document.getElementById('tokenInfo').style.display = 'block';
+            document.getElementById('apiTest').style.display = 'block';
+
+            alert('Playground token loaded! You can now test your Django API.');
+        }
+
+        // Decode JWT for display
+        function decodeJWT(token) {
+            try {
+                const payload = JSON.parse(atob(token.split('.')[1]));
+                return payload;
+            } catch (e) {
+                return null;
+            }
+        }
+    </script>
+</body>
+</html>

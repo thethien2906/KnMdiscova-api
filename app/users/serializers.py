@@ -155,3 +155,119 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 
         return {'user': user, 'message': message}
 
+
+
+class GoogleAuthSerializer(serializers.Serializer):
+    """
+    Serializer for Google OAuth token validation.
+    Handles input validation only - business logic in service layer.
+    """
+    google_token = serializers.CharField(
+        max_length=2048,  # Google tokens can be quite long
+        help_text=_("Google ID token from client-side OAuth flow")
+    )
+    user_type = serializers.ChoiceField(
+        choices=User.USER_TYPE_CHOICES,
+        required=False,
+        help_text=_("Required for new user registration: Parent, Psychologist, or Admin")
+    )
+
+    def validate_google_token(self, value):
+        """
+        Basic token format validation
+        """
+        if not value.strip():
+            raise serializers.ValidationError(_("Google token cannot be empty"))
+
+        # Basic format check - Google JWT tokens have 3 parts separated by dots
+        parts = value.split('.')
+        if len(parts) != 3:
+            raise serializers.ValidationError(_("Invalid Google token format"))
+
+        return value.strip()
+
+    def validate(self, attrs):
+        """
+        Cross-field validation - no complex business logic here
+        """
+        return attrs
+
+
+class GoogleLinkAccountSerializer(serializers.Serializer):
+    """
+    Serializer for linking existing account with Google.
+    Used when user wants to add Google auth to existing account.
+    """
+    google_token = serializers.CharField(
+        max_length=2048,
+        help_text=_("Google ID token to link with current account")
+    )
+    password = serializers.CharField(
+        write_only=True,
+        help_text=_("Current account password for verification")
+    )
+
+    def validate_google_token(self, value):
+        """Basic token validation"""
+        if not value.strip():
+            raise serializers.ValidationError(_("Google token cannot be empty"))
+
+        parts = value.split('.')
+        if len(parts) != 3:
+            raise serializers.ValidationError(_("Invalid Google token format"))
+
+        return value.strip()
+
+    def validate(self, attrs):
+        """
+        Validate password against current user
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(_("Authentication required"))
+
+        password = attrs.get('password')
+        if not request.user.check_password(password):
+            raise serializers.ValidationError({
+                'password': _("Current password is incorrect")
+            })
+
+        return attrs
+
+
+class GoogleUnlinkAccountSerializer(serializers.Serializer):
+    """
+    Serializer for unlinking Google from account.
+    """
+    password = serializers.CharField(
+        write_only=True,
+        help_text=_("Current account password for verification")
+    )
+
+    def validate(self, attrs):
+        """
+        Validate password and ensure user has password auth available
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(_("Authentication required"))
+
+        user = request.user
+        password = attrs.get('password')
+
+        if not user.check_password(password):
+            raise serializers.ValidationError({
+                'password': _("Current password is incorrect")
+            })
+
+        if not user.google_id:
+            raise serializers.ValidationError(_("Google account is not linked"))
+
+        if not user.has_password_auth:
+            raise serializers.ValidationError(_(
+                "Cannot unlink Google account: no password authentication available. "
+                "Please set a password first."
+            ))
+
+        return attrs
+

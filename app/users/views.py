@@ -10,17 +10,28 @@ from django.contrib.auth import login, logout
 from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
-
+import logging
 from .models import User
 from .serializers import (
     UserSerializer,
     UserRegistrationSerializer,
     LoginSerializer,
     PasswordResetRequestSerializer,
-    PasswordResetConfirmSerializer
+    PasswordResetConfirmSerializer,
+    GoogleAuthSerializer,
+    GoogleLinkAccountSerializer,
+    GoogleUnlinkAccountSerializer
 )
 from .services import AuthenticationService, UserService
-
+from .exceptions import (
+    InvalidGoogleTokenError,
+    GoogleUserInfoError,
+    EmailAlreadyExistsError,
+    GoogleEmailNotVerifiedError,
+    UserTypeRequiredError,
+    GoogleConfigurationError
+)
+logger = logging.getLogger(__name__)
 
 class AuthViewSet(GenericViewSet):
     """
@@ -199,7 +210,203 @@ class AuthViewSet(GenericViewSet):
             return Response({
                 'error': _('Profile update failed')
             }, status=status.HTTP_400_BAD_REQUEST)
+    @extend_schema(
+        request=GoogleAuthSerializer,
+        responses={
+            200: {
+                'description': 'Google authentication successful',
+                'example': {
+                    'message': 'Google authentication successful',
+                    'user': {'id': 1, 'email': 'user@example.com', 'user_type': 'Parent'},
+                    'token': 'your-auth-token',
+                    'is_new_user': False
+                }
+            },
+            201: {
+                'description': 'Google registration successful',
+                'example': {
+                    'message': 'Google registration successful',
+                    'user': {'id': 1, 'email': 'user@example.com', 'user_type': 'Parent'},
+                    'token': 'your-auth-token',
+                    'is_new_user': True
+                }
+            },
+            400: {'description': 'Invalid token or registration data'}
+        },
+        description="Authenticate with Google OAuth",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'])
+    def google_auth(self, request):
+        """
+        Google OAuth authentication/registration
+        POST /api/auth/google-auth/
+        """
+        serializer = GoogleAuthSerializer(data=request.data)
 
+        if serializer.is_valid():
+            google_token = serializer.validated_data['google_token']
+            user_type = serializer.validated_data.get('user_type')
+
+            try:
+                # Delegate to service layer
+                user, is_new_user, action = AuthenticationService.google_authenticate(
+                    google_token, user_type
+                )
+
+                # Create or get token
+                token, created = Token.objects.get_or_create(user=user)
+
+                # Prepare response
+                status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
+                message = f'Google {action} successful'
+
+                return Response({
+                    'message': _(message),
+                    'user': UserSerializer(user).data,
+                    'token': token.key,
+                    'is_new_user': is_new_user
+                }, status=status_code)
+
+            except UserTypeRequiredError:
+                return Response({
+                    'error': _('User type is required for new registrations'),
+                    'requires_user_type': True,
+                    'available_types': [choice[0] for choice in User.USER_TYPE_CHOICES]
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except EmailAlreadyExistsError as e:
+                return Response({
+                    'error': _('Email already registered with different authentication method'),
+                    'email': e.email,
+                    'existing_provider': e.existing_provider
+                }, status=status.HTTP_409_CONFLICT)
+
+            except InvalidGoogleTokenError:
+                return Response({
+                    'error': _('Invalid or expired Google token')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except GoogleEmailNotVerifiedError:
+                return Response({
+                    'error': _('Google account email is not verified')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except GoogleConfigurationError:
+                return Response({
+                    'error': _('Google authentication is not available')
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+            except Exception as e:
+                logger.error(f"Google authentication error: {str(e)}")
+                return Response({
+                    'error': _('Google authentication failed. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=GoogleLinkAccountSerializer,
+        responses={
+            200: {
+                'description': 'Google account linked successfully',
+                'example': {
+                    'message': 'Google account linked successfully',
+                    'user': {'id': 1, 'email': 'user@example.com', 'is_google_user': True}
+                }
+            },
+            400: {'description': 'Invalid request or token'},
+            409: {'description': 'Google account already linked elsewhere'}
+        },
+        description="Link Google account to existing user",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def link_google(self, request):
+        """
+        Link Google account to existing authenticated user
+        POST /api/auth/link-google/
+        """
+        serializer = GoogleLinkAccountSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            google_token = serializer.validated_data['google_token']
+
+            try:
+                # Delegate to service layer
+                updated_user = AuthenticationService.link_google_account(
+                    request.user, google_token
+                )
+
+                return Response({
+                    'message': _('Google account linked successfully'),
+                    'user': UserSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+
+            except EmailAlreadyExistsError as e:
+                return Response({
+                    'error': str(e),
+                    'email': e.email
+                }, status=status.HTTP_409_CONFLICT)
+
+            except InvalidGoogleTokenError:
+                return Response({
+                    'error': _('Invalid or expired Google token')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except Exception as e:
+                logger.error(f"Google account linking error: {str(e)}")
+                return Response({
+                    'error': _('Failed to link Google account. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=GoogleUnlinkAccountSerializer,
+        responses={
+            200: {
+                'description': 'Google account unlinked successfully',
+                'example': {
+                    'message': 'Google account unlinked successfully',
+                    'user': {'id': 1, 'email': 'user@example.com', 'is_google_user': False}
+                }
+            },
+            400: {'description': 'Invalid request or cannot unlink'}
+        },
+        description="Unlink Google account from user",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def unlink_google(self, request):
+        """
+        Unlink Google account from authenticated user
+        POST /api/auth/unlink-google/
+        """
+        serializer = GoogleUnlinkAccountSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            try:
+                # Delegate to service layer
+                updated_user = AuthenticationService.unlink_google_account(request.user)
+
+                return Response({
+                    'message': _('Google account unlinked successfully'),
+                    'user': UserSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+
+            except ValueError as e:
+                return Response({
+                    'error': str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except Exception as e:
+                logger.error(f"Google account unlinking error: {str(e)}")
+                return Response({
+                    'error': _('Failed to unlink Google account. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
 @extend_schema(tags=['Authentication'])
 class EmailVerificationView(APIView):
