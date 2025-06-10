@@ -370,6 +370,7 @@ class Appointment(models.Model):
     APPOINTMENT_STATUS_CHOICES = [
         ('Payment_Pending', _('Payment Pending')),
         ('Scheduled', _('Scheduled')),
+        ('In_Progress', _('In Progress')),
         ('Completed', _('Completed')),
         ('Cancelled', _('Cancelled')),
         ('No_Show', _('No Show')),
@@ -581,12 +582,22 @@ class Appointment(models.Model):
             duration = self.scheduled_end_time - self.scheduled_start_time
 
             if self.session_type == 'OnlineMeeting':
-                if duration != timedelta(hours=1):
-                    errors['scheduled_end_time'] = _("Online sessions must be exactly 1 hour")
-            elif self.session_type == 'InitialConsultation':
-                if duration != timedelta(hours=2):
-                    errors['scheduled_end_time'] = _("Initial consultations must be exactly 2 hours")
+                expected_duration = timedelta(hours=1)
+                tolerance = timedelta(minutes=30)
 
+                if abs(duration - expected_duration) > tolerance:
+                    errors['scheduled_end_time'] = _(
+                        "Online sessions must be approximately 1 hour (30 minute allowed)"
+                    )
+
+            elif self.session_type == 'InitialConsultation':
+                expected_duration = timedelta(hours=2)
+                tolerance = timedelta(minutes=30)
+
+                if abs(duration - expected_duration) > tolerance:
+                    errors['scheduled_end_time'] = _(
+                        "Initial consultations must be approximately 2 hours (±30 minutes allowed)"
+                    )
         # QR code should only exist for InitialConsultation
         if self.qr_verification_code and self.session_type != 'InitialConsultation':
             errors['qr_verification_code'] = _("QR verification only applies to in-person consultations")
@@ -669,8 +680,8 @@ class Appointment(models.Model):
 
     def mark_as_completed(self):
         """Mark appointment as completed"""
-        if self.appointment_status != 'Scheduled':
-            raise ValidationError(_("Only scheduled appointments can be marked as completed"))
+        if self.appointment_status not in ['Scheduled', 'In_Progress']:
+            raise ValidationError(_("Only scheduled or in-progress appointments can be marked as completed"))
 
         self.appointment_status = 'Completed'
         if not self.actual_end_time:
@@ -691,7 +702,7 @@ class Appointment(models.Model):
         self.save(update_fields=['appointment_status', 'cancellation_reason', 'updated_at'])
 
     def verify_session(self):
-        """Verify in-person session attendance via QR code"""
+        """Verify in-person session attendance via QR code and set In_Progress status"""
         if not self.can_be_verified:
             raise ValidationError(_("Session cannot be verified at this time"))
 
@@ -699,7 +710,11 @@ class Appointment(models.Model):
         if not self.actual_start_time:
             self.actual_start_time = timezone.now()
 
-        self.save(update_fields=['session_verified_at', 'actual_start_time', 'updated_at'])
+        # NEW: Set status to In_Progress for initial consultations
+        if self.session_type == 'InitialConsultation':
+            self.appointment_status = 'In_Progress'
+
+        self.save(update_fields=['session_verified_at', 'actual_start_time', 'appointment_status', 'updated_at'])
 
     def _generate_qr_code(self):
         """Generate unique QR verification code"""
@@ -767,3 +782,48 @@ class Appointment(models.Model):
     def payment_order(self):
         """Get the payment order for this appointment (using existing relationship)"""
         return self.orders.filter(order_type='appointment_booking').first()
+
+    @property
+    def can_be_marked_no_show(self):
+        """Check if appointment can be marked as no-show (only after 30 mins of scheduled end time)"""
+        return (
+            self.appointment_status in ['Scheduled', 'In_Progress'] and
+            timezone.now() >= self.scheduled_end_time + timedelta(minutes=30)
+        )
+
+    @property
+    def can_start_online_session(self):
+        """Check if online session can be started"""
+        return (
+            self.session_type == 'OnlineMeeting' and
+            self.appointment_status == 'Scheduled' and
+            # Allow starting 15 minutes before to 30 minutes after scheduled start
+            self.scheduled_start_time - timedelta(minutes=15) <= timezone.now() <= self.scheduled_end_time
+        )
+    def start_online_session(self):
+        """Start online session and set In_Progress status"""
+        if not self.can_start_online_session:
+            raise ValidationError(_("Online session cannot be started at this time"))
+
+        if not self.actual_start_time:
+            self.actual_start_time = timezone.now()
+
+        self.appointment_status = 'In_Progress'
+        self.save(update_fields=['actual_start_time', 'appointment_status', 'updated_at'])
+
+    def mark_as_no_show(self, reason=""):
+        """Mark appointment as no-show (only after 30 mins of scheduled end time)"""
+        if not self.can_be_marked_no_show:
+            raise ValidationError(_("Appointment cannot be marked as no-show at this time"))
+
+        # Release appointment slots back to available
+        for slot in self.appointment_slots.all():
+            slot.mark_as_available()
+
+        self.appointment_status = 'No_Show'
+        if reason:
+            self.psychologist_notes = f"No-show: {reason}"
+        if not self.actual_end_time:
+            self.actual_end_time = timezone.now()
+
+        self.save(update_fields=['appointment_status', 'psychologist_notes', 'actual_end_time', 'updated_at'])

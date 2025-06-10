@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 import logging
+from django.http import Http404
 from rest_framework.exceptions import PermissionDenied
 from datetime import date, timedelta
 from django.utils import timezone
@@ -27,7 +28,9 @@ from .serializers import (
     BookingAvailabilitySerializer,
     AvailableSlotDisplaySerializer,
     AppointmentSlotCreateSerializer,
-    AppointmentSlotSerializer
+    AppointmentSlotSerializer,
+    NoShowSerializer,
+    StartOnlineSessionSerializer
 )
 from .services import (
     AppointmentBookingService,
@@ -106,6 +109,10 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
             return AppointmentDetailSerializer
         elif self.action == 'verify_qr':
             return QRVerificationSerializer
+        elif self.action == 'mark_no_show':  # NEW
+            return NoShowSerializer
+        elif self.action == 'start_online_session':  # NEW
+            return StartOnlineSessionSerializer
         elif self.action == 'search':
             return AppointmentSearchSerializer
         elif self.action == 'cancel':
@@ -132,6 +139,9 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
             permission_classes = [permissions.IsAuthenticated, IsMarketplaceUser]
         elif self.action in ['list', 'retrieve', 'my_appointments']:
             permission_classes = [permissions.IsAuthenticated, IsAppointmentParticipant]
+        elif self.action in ['mark_no_show', 'start_online_session']:
+            permission_classes = [permissions.IsAuthenticated, IsPsychologistAppointmentProvider]
+
         else:
             permission_classes = [permissions.IsAuthenticated, AppointmentViewPermissions]
 
@@ -868,7 +878,136 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
             return Response({
                 'error': _('Failed to get appointment history')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    @extend_schema(
+        request=NoShowSerializer,
+        responses={
+            200: {
+                'description': 'Appointment marked as no-show successfully',
+                'example': {
+                    'message': 'Appointment marked as no-show successfully',
+                    'appointment': {
+                        'appointment_id': 'uuid',
+                        'appointment_status': 'No_Show',
+                        'actual_end_time': '2024-01-15T11:30:00Z'
+                    }
+                }
+            },
+            400: {'description': 'Cannot mark as no-show at this time'},
+            403: {'description': 'Permission denied'},
+            404: {'description': 'Appointment not found'}
+        },
+        description="Mark appointment as no-show (only available 30 minutes after scheduled end time)",
+        tags=['Appointments']
+    )
+    @action(detail=True, methods=['post'])
+    def mark_no_show(self, request, pk=None):
+        """
+        Mark appointment as no-show (psychologists only, 30 mins after scheduled end time)
+        POST /api/appointments/{id}/mark-no-show/
+        """
+        try:
+            try:
+                appointment = self.get_object()
+            except Http404:
+                return Response({
+                    'error': _('Appointment not found')
+                }, status=status.HTTP_404_NOT_FOUND)
 
+            # Validate and process no-show
+            serializer = self.get_serializer(
+                data=request.data,
+                context={'request': request, 'appointment': appointment}
+            )
+
+            if serializer.is_valid():
+                updated_appointment = serializer.save()
+
+                # Return success response
+                result_serializer = AppointmentDetailSerializer(updated_appointment)
+
+                logger.info(f"Appointment {appointment.appointment_id} marked as no-show by {request.user.email}")
+                return Response({
+                    'message': _('Appointment marked as no-show successfully'),
+                    'appointment': result_serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        except Appointment.DoesNotExist:
+            return Response({
+                'error': _('Appointment not found')
+            }, status=status.HTTP_404_NOT_FOUND)
+        except PermissionDenied:
+            return Response({
+                'error': _('Permission denied')
+            }, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            logger.error(f"Error marking no-show for appointment {pk} by {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to mark appointment as no-show')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # NEW ACTION: Start online session
+    @extend_schema(
+        request=StartOnlineSessionSerializer,
+        responses={
+            200: {
+                'description': 'Online session started successfully',
+                'example': {
+                    'message': 'Online session started successfully',
+                    'appointment': {
+                        'appointment_id': 'uuid',
+                        'appointment_status': 'In_Progress',
+                        'actual_start_time': '2024-01-15T10:00:00Z',
+                        'meeting_link': 'https://zoom.us/j/123456789'
+                    }
+                }
+            },
+            400: {'description': 'Cannot start session at this time'},
+            403: {'description': 'Permission denied'},
+            404: {'description': 'Appointment not found'}
+        },
+        description="Start online session and set status to In_Progress",
+        tags=['Appointments']
+    )
+    @action(detail=True, methods=['post'])
+    def start_online_session(self, request, pk=None):
+        """
+        Start online session and set status to In_Progress (psychologists only)
+        POST /api/appointments/{id}/start-online-session/
+        """
+        try:
+            appointment = self.get_object()
+
+            # Validate and process session start
+            serializer = self.get_serializer(
+                data=request.data,
+                context={'request': request, 'appointment': appointment}
+            )
+            if serializer.is_valid():
+                updated_appointment = serializer.save()
+                # Return success response
+                result_serializer = AppointmentDetailSerializer(updated_appointment)
+                logger.info(f"Online session started for appointment {appointment.appointment_id} by {request.user.email}")
+                return Response({
+                    'message': _('Online session started successfully'),
+                    'appointment': result_serializer.data
+                }, status=status.HTTP_200_OK)
+            else:
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        except Appointment.DoesNotExist:
+            return Response({
+                'error': _('Appointment not found')
+            }, status=status.HTTP_404_NOT_FOUND)
+        except PermissionDenied:
+            return Response({
+                'error': _('Permission denied')
+            }, status=status.HTTP_403_FORBIDDEN)
+        except Exception as e:
+            logger.error(f"Error starting online session for appointment {pk} by {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to start online session')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 
