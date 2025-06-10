@@ -40,6 +40,14 @@ class User(AbstractBaseUser, PermissionsMixin):
         blank=True,
         help_text=_("Google account identifier for OAuth authentication")
     )
+    facebook_id = models.CharField(
+        _('facebook id'),
+        max_length=255,
+        unique=True,
+        null=True,
+        blank=True,
+        help_text=_("Facebook account identifier for OAuth authentication")
+    )
     user_type = models.CharField(
         max_length=20,
         choices=USER_TYPE_CHOICES,
@@ -145,3 +153,13 @@ class User(AbstractBaseUser, PermissionsMixin):
     def has_password_auth(self):
         """Check if user has password authentication"""
         return bool(self.password)
+
+    @property
+    def is_facebook_user(self):
+        """Check if user registered/authenticated via Facebook"""
+        return bool(self.facebook_id)
+
+    @property
+    def has_social_auth(self):
+        """Check if user has any social authentication method"""
+        return bool(self.google_id or self.facebook_id)

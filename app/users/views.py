@@ -20,7 +20,10 @@ from .serializers import (
     PasswordResetConfirmSerializer,
     GoogleAuthSerializer,
     GoogleLinkAccountSerializer,
-    GoogleUnlinkAccountSerializer
+    GoogleUnlinkAccountSerializer,
+    FacebookAuthSerializer,
+    FacebookLinkAccountSerializer,
+    FacebookUnlinkAccountSerializer
 )
 from .services import AuthenticationService, UserService
 from .exceptions import (
@@ -29,7 +32,11 @@ from .exceptions import (
     EmailAlreadyExistsError,
     GoogleEmailNotVerifiedError,
     UserTypeRequiredError,
-    GoogleConfigurationError
+    GoogleConfigurationError,
+    InvalidFacebookTokenError,
+    FacebookUserInfoError,
+    FacebookConfigurationError,
+    FacebookEmailNotAvailableError
 )
 logger = logging.getLogger(__name__)
 
@@ -404,6 +411,204 @@ class AuthViewSet(GenericViewSet):
                 logger.error(f"Google account unlinking error: {str(e)}")
                 return Response({
                     'error': _('Failed to unlink Google account. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=FacebookAuthSerializer,
+        responses={
+            200: {
+                'description': 'Facebook authentication successful',
+                'example': {
+                    'message': 'Facebook authentication successful',
+                    'user': {'id': 1, 'email': 'user@example.com', 'user_type': 'Parent'},
+                    'token': 'your-auth-token',
+                    'is_new_user': False
+                }
+            },
+            201: {
+                'description': 'Facebook registration successful',
+                'example': {
+                    'message': 'Facebook registration successful',
+                    'user': {'id': 1, 'email': 'user@example.com', 'user_type': 'Parent'},
+                    'token': 'your-auth-token',
+                    'is_new_user': True
+                }
+            },
+            400: {'description': 'Invalid token or registration data'}
+        },
+        description="Authenticate with Facebook OAuth",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'])
+    def facebook_auth(self, request):
+        """
+        Facebook OAuth authentication/registration
+        POST /api/auth/facebook-auth/
+        """
+        serializer = FacebookAuthSerializer(data=request.data)
+
+        if serializer.is_valid():
+            facebook_token = serializer.validated_data['facebook_token']
+            user_type = serializer.validated_data.get('user_type')
+
+            try:
+                # Delegate to service layer
+                user, is_new_user, action = AuthenticationService.facebook_authenticate(
+                    facebook_token, user_type
+                )
+
+                # Create or get token
+                token, created = Token.objects.get_or_create(user=user)
+
+                # Prepare response
+                status_code = status.HTTP_201_CREATED if is_new_user else status.HTTP_200_OK
+                message = f'Facebook {action} successful'
+
+                return Response({
+                    'message': _(message),
+                    'user': UserSerializer(user).data,
+                    'token': token.key,
+                    'is_new_user': is_new_user
+                }, status=status_code)
+
+            except UserTypeRequiredError:
+                return Response({
+                    'error': _('User type is required for new registrations'),
+                    'requires_user_type': True,
+                    'available_types': [choice[0] for choice in User.USER_TYPE_CHOICES]
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except EmailAlreadyExistsError as e:
+                return Response({
+                    'error': _('Email already registered with different authentication method'),
+                    'email': e.email,
+                    'existing_provider': e.existing_provider
+                }, status=status.HTTP_409_CONFLICT)
+
+            except InvalidFacebookTokenError:
+                return Response({
+                    'error': _('Invalid or expired Facebook token')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except FacebookEmailNotAvailableError:
+                return Response({
+                    'error': _('Facebook account does not provide email address. Please ensure email permission is granted.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except FacebookConfigurationError:
+                return Response({
+                    'error': _('Facebook authentication is not available')
+                }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+            except Exception as e:
+                logger.error(f"Facebook authentication error: {str(e)}")
+                return Response({
+                    'error': _('Facebook authentication failed. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=FacebookLinkAccountSerializer,
+        responses={
+            200: {
+                'description': 'Facebook account linked successfully',
+                'example': {
+                    'message': 'Facebook account linked successfully',
+                    'user': {'id': 1, 'email': 'user@example.com', 'is_facebook_user': True}
+                }
+            },
+            400: {'description': 'Invalid request or token'},
+            409: {'description': 'Facebook account already linked elsewhere'}
+        },
+        description="Link Facebook account to existing user",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def link_facebook(self, request):
+        """
+        Link Facebook account to existing authenticated user
+        POST /api/auth/link-facebook/
+        """
+        serializer = FacebookLinkAccountSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            facebook_token = serializer.validated_data['facebook_token']
+
+            try:
+                # Delegate to service layer
+                updated_user = AuthenticationService.link_facebook_account(
+                    request.user, facebook_token
+                )
+
+                return Response({
+                    'message': _('Facebook account linked successfully'),
+                    'user': UserSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+
+            except EmailAlreadyExistsError as e:
+                return Response({
+                    'error': str(e),
+                    'email': e.email
+                }, status=status.HTTP_409_CONFLICT)
+
+            except InvalidFacebookTokenError:
+                return Response({
+                    'error': _('Invalid or expired Facebook token')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except Exception as e:
+                logger.error(f"Facebook account linking error: {str(e)}")
+                return Response({
+                    'error': _('Failed to link Facebook account. Please try again.')
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    @extend_schema(
+        request=FacebookUnlinkAccountSerializer,
+        responses={
+            200: {
+                'description': 'Facebook account unlinked successfully',
+                'example': {
+                    'message': 'Facebook account unlinked successfully',
+                    'user': {'id': 1, 'email': 'user@example.com', 'is_facebook_user': False}
+                }
+            },
+            400: {'description': 'Invalid request or cannot unlink'}
+        },
+        description="Unlink Facebook account from user",
+        tags=['Authentication']
+    )
+    @action(detail=False, methods=['post'], permission_classes=[permissions.IsAuthenticated])
+    def unlink_facebook(self, request):
+        """
+        Unlink Facebook account from authenticated user
+        POST /api/auth/unlink-facebook/
+        """
+        serializer = FacebookUnlinkAccountSerializer(data=request.data, context={'request': request})
+
+        if serializer.is_valid():
+            try:
+                # Delegate to service layer
+                updated_user = AuthenticationService.unlink_facebook_account(request.user)
+
+                return Response({
+                    'message': _('Facebook account unlinked successfully'),
+                    'user': UserSerializer(updated_user).data
+                }, status=status.HTTP_200_OK)
+
+            except ValueError as e:
+                return Response({
+                    'error': str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except Exception as e:
+                logger.error(f"Facebook account unlinking error: {str(e)}")
+                return Response({
+                    'error': _('Failed to unlink Facebook account. Please try again.')
                 }, status=status.HTTP_400_BAD_REQUEST)
 
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

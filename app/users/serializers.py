@@ -271,3 +271,113 @@ class GoogleUnlinkAccountSerializer(serializers.Serializer):
 
         return attrs
 
+
+class FacebookAuthSerializer(serializers.Serializer):
+    """
+    Serializer for Facebook OAuth authentication.
+    Handles both login and registration cases.
+    """
+    facebook_token = serializers.CharField(
+        max_length=2048,
+        help_text=_("Facebook access token obtained from Facebook SDK")
+    )
+    user_type = serializers.ChoiceField(
+        choices=User.USER_TYPE_CHOICES,
+        required=False,
+        help_text=_("Required for new user registration: Parent, Psychologist, or Admin")
+    )
+
+    def validate_facebook_token(self, value):
+        """Basic token validation"""
+        if not value.strip():
+            raise serializers.ValidationError(_("Facebook token cannot be empty"))
+
+        # Facebook access tokens are typically long strings
+        if len(value.strip()) < 50:
+            raise serializers.ValidationError(_("Invalid Facebook token format"))
+
+        return value.strip()
+
+    def validate(self, attrs):
+        """
+        Cross-field validation - no complex business logic here
+        """
+        return attrs
+
+
+class FacebookLinkAccountSerializer(serializers.Serializer):
+    """
+    Serializer for linking existing account with Facebook.
+    Used when user wants to add Facebook auth to existing account.
+    """
+    facebook_token = serializers.CharField(
+        max_length=2048,
+        help_text=_("Facebook access token to link with current account")
+    )
+    password = serializers.CharField(
+        write_only=True,
+        help_text=_("Current account password for verification")
+    )
+
+    def validate_facebook_token(self, value):
+        """Basic token validation"""
+        if not value.strip():
+            raise serializers.ValidationError(_("Facebook token cannot be empty"))
+
+        if len(value.strip()) < 50:
+            raise serializers.ValidationError(_("Invalid Facebook token format"))
+
+        return value.strip()
+
+    def validate(self, attrs):
+        """
+        Validate password against current user
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(_("Authentication required"))
+
+        password = attrs.get('password')
+        if not request.user.check_password(password):
+            raise serializers.ValidationError({
+                'password': _("Current password is incorrect")
+            })
+
+        return attrs
+
+
+class FacebookUnlinkAccountSerializer(serializers.Serializer):
+    """
+    Serializer for unlinking Facebook from account.
+    """
+    password = serializers.CharField(
+        write_only=True,
+        help_text=_("Current account password for verification")
+    )
+
+    def validate(self, attrs):
+        """
+        Validate password and ensure user has another auth method available
+        """
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError(_("Authentication required"))
+
+        user = request.user
+        password = attrs.get('password')
+
+        if not user.check_password(password):
+            raise serializers.ValidationError({
+                'password': _("Current password is incorrect")
+            })
+
+        if not user.facebook_id:
+            raise serializers.ValidationError(_("Facebook account is not linked"))
+
+        if not user.has_password_auth and not user.google_id:
+            raise serializers.ValidationError(_(
+                "Cannot unlink Facebook account: no other authentication method available. "
+                "Please set a password or link Google account first."
+            ))
+
+        return attrs

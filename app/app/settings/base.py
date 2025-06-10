@@ -299,3 +299,17 @@ GOOGLE_OAUTH2_SCOPES = [
 
 # Additional OAuth settings
 GOOGLE_OAUTH2_USE_DEPRECATED_PYOPENSSL = False
+
+
+# Facebook OAuth Configuration
+FACEBOOK_APP_ID = os.environ.get('FACEBOOK_APP_ID')
+FACEBOOK_APP_SECRET = os.environ.get('FACEBOOK_APP_SECRET')
+
+# Validation for required Facebook OAuth settings
+if not FACEBOOK_APP_ID or not FACEBOOK_APP_SECRET:
+    if not ('test' in sys.argv or 'pytest' in sys.modules):
+        import warnings
+        warnings.warn(
+            "Facebook OAuth credentials not configured. Facebook authentication will be disabled.",
+            UserWarning
+        )
