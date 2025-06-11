@@ -127,7 +127,8 @@ class StripePaymentProvider(BasePaymentProvider):
                     'stripe_status': payment_intent.status,
                     'stripe_amount': stripe_amount,
                     'stripe_currency': currency.lower(),
-                    'raw_response': payment_intent.to_dict_recursive()
+                    'raw_response': payment_intent.to_dict_recursive(),
+                    'payment_method_type': 'card',
                 }
             }
 
@@ -163,8 +164,10 @@ class StripePaymentProvider(BasePaymentProvider):
             }
 
             our_status = status_mapping.get(payment_intent.status, 'processing')
-
-            # Get payment method details if available - FIX THE ERROR HERE
+            payment_method_info = {
+                'payment_method_type': 'card',  # Default to card
+                'payment_method_details': {}
+            }
             payment_method_info = {}
             try:
                 # Safe access to charges
