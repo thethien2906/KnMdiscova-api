@@ -606,7 +606,9 @@ class PaymentService:
                     'expires_at': payment_intent_data.get('expires_at'),
                     'amount': order.amount,
                     'currency': order.currency,
-                    'description': order.description
+                    'description': order.description,
+                    'payment_method_type': payment_intent_data.get('payment_method_type', 'card'),
+
                 }
 
         except PaymentProviderConfigError as e:
