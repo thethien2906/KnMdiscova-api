@@ -58,7 +58,9 @@ class FacebookAuthService:
 
             debug_response = requests.get(debug_url, params=debug_params, timeout=10)
             debug_data = debug_response.json()
-
+            if 'error' in debug_data:
+                logger.error(f"Facebook debug_token API returned an error: {debug_data['error']}")
+            logger.debug(f"Facebook debug_token response data: {debug_data}")
             if 'error' in debug_data or not debug_data.get('data', {}).get('is_valid'):
                 logger.warning("Facebook token verification failed")
                 raise InvalidFacebookTokenError("Invalid or expired Facebook token")
