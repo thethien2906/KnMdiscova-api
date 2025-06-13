@@ -261,6 +261,33 @@ AUTO_GENERATE_APPOINTMENT_SLOTS = os.environ.get('AUTO_GENERATE_APPOINTMENT_SLOT
 # How many days ahead to generate slots automatically
 AUTO_GENERATION_DAYS_AHEAD = int(os.environ.get('AUTO_GENERATION_DAYS_AHEAD', '90'))
 
+
+
+# =============================================================================
+# CELERY CONFIGURATION
+# =============================================================================
+
+# Celery broker configuration
+CELERY_BROKER_URL = os.environ.get('CELERY_BROKER_URL', 'redis://redis:6379/0')
+CELERY_RESULT_BACKEND = os.environ.get('CELERY_RESULT_BACKEND', 'redis://redis:6379/0')
+
+# Celery settings
+CELERY_ACCEPT_CONTENT = ['json']
+CELERY_TASK_SERIALIZER = 'json'
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TIMEZONE = TIME_ZONE
+CELERY_ENABLE_UTC = True
+
+# Task result settings
+CELERY_TASK_TRACK_STARTED = True
+CELERY_TASK_TIME_LIMIT = 30 * 60  # 30 minutes
+CELERY_TASK_SOFT_TIME_LIMIT = 25 * 60  # 25 minutes
+
+# Worker settings
+CELERY_WORKER_PREFETCH_MULTIPLIER = 1
+CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
+
+
 # Celery task routing for appointment slots (if using custom routing)
 CELERY_TASK_ROUTES = {
     'appointments.tasks.auto_generate_slots_task': {'queue': 'slots'},
