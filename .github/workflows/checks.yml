@@ -16,6 +16,19 @@ jobs:
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
             - name: Checkout code
               uses: actions/checkout@v2
+            - name: Wait for Redis
+              run: |
+                echo "Waiting for Redis (redis:6379)..."
+                for i in $(seq 1 30); do
+                    # Attempt to ping Redis inside its container (using the service name 'redis')
+                    if docker compose -f docker-compose.test.yml exec redis redis-cli ping &>/dev/null; then
+                      echo "Redis is up!"
+                      break
+                    fi
+                    echo "Waiting for Redis to be ready (attempt $i/30)..."
+                    sleep 2
+                done
+                docker compose -f docker-compose.test.yml exec redis redis-cli ping || { echo "Redis did not become available!"; exit 1; }
             - name: Test
               env:
                 DEBUG: False
@@ -46,4 +59,10 @@ jobs:
                 STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY }}
                 STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
                 STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-              run: docker compose run --rm app ash -c "python manage.py wait_for_db && python manage.py test"
+                # Redis
+                REDIS_HOST: redis
+                REDIS_PORT: 6379
+              run: docker compose -f docker-compose.test.yml run --rm app ash -c "python manage.py wait_for_db && python manage.py test"
+            - name: Stop Docker Compose Services
+              if: always()
+              run: docker compose -f docker-compose.test.yml down
