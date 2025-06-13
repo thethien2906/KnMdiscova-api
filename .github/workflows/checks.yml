@@ -23,15 +23,15 @@ jobs:
               run: |
                 echo "Waiting for Redis (redis:6379)..."
                 for i in $(seq 1 30); do
-                    # Attempt to ping Redis inside its container (using the service name 'redis')
-                    if docker compose exec redis redis-cli ping &>/dev/null; then
+                    # Attempt to ping Redis directly using its hostname (service name)
+                    if redis-cli -h $REDIS_HOST -p $REDIS_PORT ping &>/dev/null; then
                       echo "Redis is up!"
                       break
                     fi
                     echo "Waiting for Redis to be ready (attempt $i/30)..."
                     sleep 2
                 done
-                docker compose exec redis redis-cli ping || { echo "Redis did not become available!"; exit 1; }
+                redis-cli -h $REDIS_HOST -p $REDIS_PORT ping || { echo "Redis did not become available!"; exit 1; }
             - name: Test
               env:
                 DEBUG: False
