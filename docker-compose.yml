@@ -16,9 +16,9 @@ services:  # Remove version line (obsolete)
       # Use environment variables from GitHub Actions, with fallbacks for local dev
       - DEBUG=${DEBUG:-true}
       - DB_HOST=${DB_HOST:-db}
-      - DB_NAME=${DB_NAME:-devdb}
-      - DB_USER=${DB_USER:-devuser}
-      - DB_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
+      - DB_NAME=${DB_NAME:-testdb}
+      - DB_USER=${DB_USER:-testuser}
+      - DB_PASSWORD=${DB_PASSWORD:-testpass}  # Match your CI password
       - SECRET_KEY=${SECRET_KEY:-your-local-dev-secret}
       - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
       - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
@@ -39,9 +39,9 @@ services:  # Remove version line (obsolete)
   db:
     image: postgres:16-alpine
     environment:
-      - POSTGRES_USER=${DB_USER:-devuser}
-      - POSTGRES_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
-      - POSTGRES_DB=${DB_NAME:-devdb}
+      - POSTGRES_USER=${DB_USER:-testuser}
+      - POSTGRES_PASSWORD=${DB_PASSWORD:-testpass}
+      - POSTGRES_DB=${DB_NAME:-testdb}
     volumes:
       - dev-db-data:/var/lib/postgresql/data
   redis:
