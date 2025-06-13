@@ -3,83 +3,30 @@ services:
     build:
       context: .
       args:
-        - DEV=true
-    environment:
-      # Use environment variables from GitHub Actions, with fallbacks for local dev
-      - DEBUG=${DEBUG:-true}
-      - DB_HOST=${DB_HOST:-db}
-      - DB_NAME=${DB_NAME:-devdb}
-      - DB_USER=${DB_USER:-devuser}
-      - DB_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
-      - SECRET_KEY=${SECRET_KEY:-your-local-dev-secret}
-      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
-      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
-      - EMAIL_HOST=${EMAIL_HOST:-}
-      - EMAIL_PORT=${EMAIL_PORT:-587}
-      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
-      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
-      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
-      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-K&Mdiscova <noreply@kmdiscova.com>}
-      - FRONTEND_URL= ${FRONTEND_URL:-http://localhost:8000}
-      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
-      - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
-      - REDIS_HOST=${REDIS_HOST:-}
-      - REDIS_PORT=${REDIS_PORT:-}
-
-    depends_on:
-      - db
-      - redis
-    volumes:
-      - ./app:/app
-
-
-  db:
-    image: postgres:16-alpine
-    environment:
-      - POSTGRES_USER=testuser
-      - POSTGRES_PASSWORD=testpass
-      - POSTGRES_DB=testdb
-    tmpfs:
-      - /var/lib/postgresql/data  # Use tmpfs for faster tests
-
-  redis:
-    image: redis:7-alpine
+        - DEV=false
+    container_name: kmdiscova-app-debug
     ports:
-      - "6379:6379"
+      - "8000:8000"
     volumes:
-      - redis-data:/data
-
-  celery-worker:
-    build:
-      context: .
-      args:
-        - DEV=true
-    volumes:
-      - ./app:/app
-    command: celery -A app worker --loglevel=info --queues=default,slots
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    command: >
+      sh -c "python manage.py wait_for_db &&
+             python manage.py migrate &&
+             python manage.py collectstatic --noinput &&
+             echo 'Testing Django startup...' &&
+             python manage.py check --deploy &&
+             echo 'Django check passed! Starting runserver...' &&
+             python manage.py runserver 0.0.0.0:8000 --settings=app.settings.production"
     env_file:
-      - .env
-    depends_on:
-      - db
-      - redis
-    environment:
-      - DJANGO_SETTINGS_MODULE=app.settings.development
+      - .env.prod
+    restart: "no"
+    networks:
+      - kmdiscova-prod
 
-  celery-beat:
-    build:
-      context: .
-      args:
-        - DEV=true
-    volumes:
-      - ./app:/app
-    command: celery -A app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
-    env_file:
-      - .env.dev
-    depends_on:
-      - db
-      - redis
-    environment:
-      - DJANGO_SETTINGS_MODULE=app.settings.development
-
+networks:
+  kmdiscova-prod:
+    driver: bridge
 volumes:
-  redis-data:
+  static_volume:
+  media_volume:

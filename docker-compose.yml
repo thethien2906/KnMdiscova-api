@@ -31,6 +31,8 @@ services:  # Remove version line (obsolete)
       - FRONTEND_URL= ${FRONTEND_URL:-http://localhost:8000}
       - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
       - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
+      - REDIS_HOST=${REDIS_HOST:-}
+      - REDIS_PORT=${REDIS_PORT:-}
     depends_on:
       - db
 
@@ -42,6 +44,44 @@ services:  # Remove version line (obsolete)
       - POSTGRES_DB=${DB_NAME:-devdb}
     volumes:
       - dev-db-data:/var/lib/postgresql/data
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis-data:/data
 
+  celery-worker:
+    build:
+      context: .
+      args:
+        - DEV=true
+    volumes:
+      - ./app:/app
+    command: celery -A app worker --loglevel=info --queues=default,slots
+    env_file:
+      - .env.dev
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DJANGO_SETTINGS_MODULE=app.settings.development
+
+  celery-beat:
+    build:
+      context: .
+      args:
+        - DEV=true
+    volumes:
+      - ./app:/app
+    command: celery -A app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file:
+      - .env.dev
+    depends_on:
+      - db
+      - redis
+    environment:
+      - DJANGO_SETTINGS_MODULE=app.settings.development
 volumes:
   dev-db-data:
+  redis-data:
