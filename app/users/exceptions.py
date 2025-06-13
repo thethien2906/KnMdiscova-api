@@ -44,3 +44,19 @@ class UserTypeRequiredError(AuthenticationServiceError):
 class GoogleConfigurationError(GoogleAuthError):
     """Raised when Google OAuth is not properly configured"""
     pass
+
+class InvalidFacebookTokenError(Exception):
+    """Raised when Facebook token is invalid or expired"""
+    pass
+
+class FacebookUserInfoError(Exception):
+    """Raised when unable to extract user info from Facebook"""
+    pass
+
+class FacebookConfigurationError(Exception):
+    """Raised when Facebook OAuth is not configured properly"""
+    pass
+
+class FacebookEmailNotAvailableError(Exception):
+    """Raised when Facebook account doesn't provide email"""
+    pass

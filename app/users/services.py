@@ -12,7 +12,7 @@ from functools import wraps
 from .models import User
 from .tokens import token_generator
 from django.conf import settings
-
+from .facebook_auth_service import FacebookAuthService
 from .google_auth_service import GoogleAuthService
 from .exceptions import (
     InvalidGoogleTokenError,
@@ -445,6 +445,56 @@ class AuthenticationService:
         except Exception as e:
             logger.error(f"Failed to unlink Google account for user {user.email}: {str(e)}")
             raise
+
+    @staticmethod
+    def facebook_authenticate(token: str, user_type: Optional[str] = None) -> Tuple[User, bool, str]:
+        """
+        Authenticate or register user with Facebook credentials.
+
+        Args:
+            token: Facebook access token
+            user_type: Required for new user registration
+
+        Returns:
+            Tuple of (User instance, is_new_user boolean, action_taken string)
+
+        Raises:
+            Various Facebook auth exceptions based on specific failures
+        """
+        # Verify Facebook token and get user info
+        facebook_user_info = FacebookAuthService.verify_facebook_token(token)
+
+        # Try to authenticate existing user
+        user, is_new = FacebookAuthService.authenticate_facebook_user(facebook_user_info)
+
+        if user:
+            # Existing user authenticated
+            return user, False, "login"
+        else:
+            # New user - registration required
+            if not user_type:
+                raise UserTypeRequiredError("User type is required for new Facebook registrations")
+
+            user = FacebookAuthService.register_facebook_user(facebook_user_info, user_type)
+            return user, True, "registration"
+
+    @staticmethod
+    def link_facebook_account(user: User, facebook_token: str) -> User:
+        """
+        Link Facebook account to existing user.
+        Delegates to FacebookAuthService.
+        """
+        return FacebookAuthService.link_facebook_account(user, facebook_token)
+
+    @staticmethod
+    def unlink_facebook_account(user: User) -> User:
+        """
+        Unlink Facebook account from user.
+        Delegates to FacebookAuthService.
+        """
+        return FacebookAuthService.unlink_facebook_account(user)
+
+
 class UserService:
     """
     Service class for user-related business logic

@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Facebook Sign-In Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 50px auto;
+            padding: 20px;
+            background: linear-gradient(135deg, #1877f2 0%, #42a5f5 100%);
+            min-height: 100vh;
+        }
+        .container {
+            background: white;
+            padding: 30px;
+            border-radius: 10px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+        }
+        h1 {
+            color: #333;
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .section {
+            margin: 20px 0;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background: #f9f9f9;
+        }
+        .section h3 {
+            margin-top: 0;
+            color: #1877f2;
+        }
+        .token-display {
+            background: #f5f5f5;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #1877f2;
+            margin: 10px 0;
+            font-family: monospace;
+            font-size: 12px;
+            word-break: break-all;
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .user-info {
+            background: #e8f5e8;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #28a745;
+            margin: 10px 0;
+        }
+        .api-test {
+            background: #fff3cd;
+            padding: 15px;
+            border-radius: 5px;
+            border-left: 4px solid #ffc107;
+            margin: 10px 0;
+        }
+        button {
+            background: #1877f2;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #166fe5;
+        }
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        .fb-login-button {
+            margin: 10px 0;
+        }
+        select, input {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+        }
+        .response {
+            background: #d4edda;
+            border: 1px solid #c3e6cb;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 10px 0;
+            white-space: pre-wrap;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        .error {
+            background: #f8d7da;
+            border: 1px solid #f5c6cb;
+            color: #721c24;
+        }
+        .warning {
+            background: #fff3cd;
+            border: 1px solid #ffeaa7;
+            color: #856404;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>📘 Facebook Sign-In Test for Django API</h1>
+
+        <div class="section">
+            <h3>Step 1: Configure Your Facebook App</h3>
+            <p>Enter your Facebook App ID below and click "Initialize Facebook SDK":</p>
+            <input type="text" id="appId" placeholder="Enter your Facebook App ID here" style="width: 100%; margin: 10px 0;">
+            <button onclick="initializeFacebookSDK()">Initialize Facebook SDK</button>
+
+            <div class="warning">
+                <strong>Note:</strong> Make sure your domain is added to your Facebook App's settings under "App Domains" and "Valid OAuth Redirect URIs". Remember that HTTPS is often required for redirect URIs.
+            </div>
+            <p id="initMessage"><em>Waiting for Facebook App ID and initialization...</em></p>
+        </div>
+
+        <div class="section">
+            <h3>Step 2: Sign in with Facebook</h3>
+            <div id="fb-root"></div>
+            <div id="loginSection" style="display: none;">
+                <div class="fb-login-button" data-width="" data-size="large" data-button-type="continue_with" data-layout="default" data-auto-logout-link="false" data-use-continue-as="false"></div>
+                <br>
+                <button onclick="loginWithFacebook()">Alternative Login Button</button>
+                <button onclick="logoutFromFacebook()" style="background: #dc3545;">Logout</button>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Step 3: Access Token Information</h3>
+            <div id="tokenInfo" style="display: none;">
+                <h4>Access Token (Use this for your API):</h4>
+                <div class="token-display" id="accessToken"></div>
+
+                <h4>User Information:</h4>
+                <div class="user-info" id="userInfo"></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Step 4: Test Your Django API</h3>
+            <div id="apiTest" style="display: none;">
+                <input type="text" id="apiUrl" placeholder="Your API URL (e.g., http://localhost:8000/api/auth/facebook_auth/)" style="width: 70%;">
+                <select id="userType">
+                    <option value="">Select User Type (for new users)</option>
+                    <option value="Parent">Parent</option>
+                    <option value="Psychologist">Psychologist</option>
+                    <option value="Admin">Admin</option>
+                </select>
+                <br>
+                <button onclick="testDjangoAPI()">Test Django API</button>
+                <div id="apiResponse"></div>
+            </div>
+        </div>
+
+        <div class="section">
+            <h3>Manual Token Testing</h3>
+            <p>If you have a Facebook access token from another source, you can test it here:</p>
+            <input type="text" id="manualToken" placeholder="Paste your Facebook access token here" style="width: 100%; margin: 10px 0;">
+            <button onclick="testManualToken()">Test Manual Token</button>
+        </div>
+
+        <div class="section">
+            <h3>Alternative: Manual API Testing (No SDK Required)</h3>
+            <p>If the Facebook SDK is loading slowly, you can test Facebook authentication manually using the Graph API:</p>
+
+            <div class="warning">
+                <strong>Quick Test Method:</strong>
+                <ol>
+                    <li>Go to <a href="https://developers.facebook.com/tools/explorer/" target="_blank">Facebook Graph API Explorer</a></li>
+                    <li>Select your app from the dropdown</li>
+                    <li>Click "Get Token" → "Get User Access Token"</li>
+                    <li>Select permissions: <code>email</code>, <code>public_profile</code></li>
+                    <li>Copy the generated access token</li>
+                    <li>Use it in the "Manual Token Testing" section above</li>
+                </ol>
+            </div>
+
+            <button onclick="openGraphExplorer()">Open Graph API Explorer</button>
+        </div>
+    </div>
+
+    <script>
+        let currentToken = null;
+        let isSDKInitialized = false;
+
+        function initializeFacebookSDK() {
+            const appId = document.getElementById('appId').value.trim();
+            if (!appId) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                // For this simple test, we'll keep it for immediate feedback.
+                alert('Please enter your Facebook App ID');
+                return;
+            }
+
+            // Prevent re-initialization if already initialized
+            if (isSDKInitialized) {
+                document.getElementById('initMessage').innerHTML = '<em style="color: blue;">Facebook SDK already initialized.</em>';
+                return;
+            }
+
+            // Show loading message
+            document.getElementById('initMessage').innerHTML = '<em>Loading Facebook SDK... Please wait</em>';
+
+            // Load Facebook SDK with timeout
+            const loadTimeout = setTimeout(() => {
+                document.getElementById('initMessage').innerHTML =
+                    '<div class="error">Facebook SDK loading is taking too long. This might be due to:<br>• Slow internet connection<br>• Facebook servers being slow<br>• Network restrictions<br><br>Try refreshing the page or check your internet connection.</div>';
+            }, 10000); // 10 second timeout
+
+            window.fbAsyncInit = function() {
+                clearTimeout(loadTimeout); // Clear timeout if SDK loads successfully
+
+                FB.init({
+                    appId: appId,
+                    cookie: true,
+                    xfbml: true, // Parse social plugins on the page
+                    version: 'v19.0' // Facebook SDK version
+                });
+
+                FB.AppEvents.logPageView();
+                isSDKInitialized = true;
+
+                // Show login section
+                document.getElementById('loginSection').style.display = 'block';
+                document.getElementById('initMessage').innerHTML = '<em style="color: green;">✅ Facebook SDK loaded successfully!</em>';
+
+                // Check if user is already logged in immediately after init
+                checkLoginState();
+            };
+
+            // Load the SDK with error handling
+            (function(d, s, id) {
+                var js, fjs = d.getElementsByTagName(s)[0];
+                if (d.getElementById(id)) return;
+                js = d.createElement(s); js.id = id;
+                js.src = "https://connect.facebook.net/en_US/sdk.js";
+
+                // Add error handling for script loading
+                js.onerror = function() {
+                    clearTimeout(loadTimeout); // Clear timeout on error
+                    document.getElementById('initMessage').innerHTML =
+                        '<div class="error">❌ Failed to load Facebook SDK. This could be due to:<br>• Network connection issues<br>• Facebook being blocked<br>• Firewall restrictions<br><br>Try using a VPN or different network.</div>';
+                };
+
+                fjs.parentNode.insertBefore(js, fjs);
+            }(document, 'script', 'facebook-jssdk'));
+        }
+
+        // Checks Facebook login status and calls handleLoginSuccess if connected
+        function checkLoginState() {
+            FB.getLoginStatus(function(response) {
+                if (response.status === 'connected') {
+                    handleLoginSuccess(response);
+                } else {
+                    // User not connected or not authorized
+                    document.getElementById('tokenInfo').style.display = 'none';
+                    document.getElementById('apiTest').style.display = 'none';
+                    // Optional: You could show a message here if needed
+                }
+            });
+        }
+
+        // Initiates Facebook login process
+        function loginWithFacebook() {
+            if (!isSDKInitialized) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Please initialize Facebook SDK first by entering App ID and clicking "Initialize"');
+                return;
+            }
+
+            FB.login(function(response) {
+                if (response.authResponse) {
+                    // User successfully logged in and authorized
+                    handleLoginSuccess(response);
+                } else {
+                    console.log('User cancelled login or did not fully authorize.');
+                    // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                    alert('Facebook login cancelled or not authorized.');
+                }
+            }, {scope: 'email,public_profile'}); // Request necessary permissions
+        }
+
+        // Logs out from Facebook
+        function logoutFromFacebook() {
+            if (!isSDKInitialized) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Please initialize Facebook SDK first');
+                return;
+            }
+
+            FB.logout(function(response) {
+                // Clear token info and hide sections
+                currentToken = null;
+                document.getElementById('accessToken').textContent = '';
+                document.getElementById('userInfo').innerHTML = '';
+                document.getElementById('apiResponse').innerHTML = '';
+                document.getElementById('tokenInfo').style.display = 'none';
+                document.getElementById('apiTest').style.display = 'none';
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Logged out successfully from Facebook');
+            });
+        }
+
+        // Handles successful Facebook login response
+        function handleLoginSuccess(response) {
+            currentToken = response.authResponse.accessToken;
+
+            // Display access token
+            document.getElementById('accessToken').textContent = currentToken;
+
+            // Get user information using Graph API
+            FB.api('/me', {fields: 'id,name,email,picture'}, function(userResponse) {
+                if (userResponse.error) {
+                    document.getElementById('userInfo').innerHTML =
+                        `<div class="error">Error fetching user info from Facebook: ${userResponse.error.message}</div>`;
+                } else {
+                    document.getElementById('userInfo').innerHTML =
+                        `<strong>Facebook ID:</strong> ${userResponse.id}<br>
+                        <strong>Name:</strong> ${userResponse.name}<br>
+                        <strong>Email:</strong> ${userResponse.email || 'Not provided'}<br>
+                        <strong>Picture:</strong> ${userResponse.picture ? `<img src="${userResponse.picture.data.url}" width="50" height="50">` : 'Not available'}<br>
+                        <strong>Token Expires:</strong> ${new Date(response.authResponse.data_access_expiration_time * 1000).toLocaleString()}`;
+                }
+
+                // Show token info and API test sections
+                document.getElementById('tokenInfo').style.display = 'block';
+                document.getElementById('apiTest').style.display = 'block';
+            });
+        }
+
+        // Tests the Django backend API with the Facebook token
+        async function testDjangoAPI() {
+            const apiUrl = document.getElementById('apiUrl').value.trim();
+            const userType = document.getElementById('userType').value;
+
+            if (!apiUrl) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Please enter your API URL');
+                return;
+            }
+
+            if (!currentToken) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Please sign in with Facebook first to get a token, or use the manual token testing.');
+                return;
+            }
+
+            const requestData = {
+                facebook_token: currentToken
+            };
+
+            if (userType) {
+                requestData.user_type = userType;
+            }
+
+            try {
+                const response = await fetch(apiUrl, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify(requestData)
+                });
+
+                const data = await response.json();
+
+                document.getElementById('apiResponse').innerHTML =
+                    `<div class="response ${response.ok ? '' : 'error'}">
+                        <strong>Status:</strong> ${response.status}<br>
+                        <strong>Response:</strong><br>
+                        ${JSON.stringify(data, null, 2)}
+                    </div>`;
+
+            } catch (error) {
+                document.getElementById('apiResponse').innerHTML =
+                    `<div class="response error">
+                        <strong>Error:</strong> ${error.message}<br>
+                        Please check your API URL, network connection, and CORS settings on your Django backend.
+                    </div>`;
+            }
+        }
+
+        // Tests the Django backend API with a manually provided Facebook token
+        function testManualToken() {
+            const manualToken = document.getElementById('manualToken').value.trim();
+            if (!manualToken) {
+                // IMPORTANT: Do NOT use alert(), use a message box instead in production apps.
+                alert('Please enter a Facebook access token');
+                return;
+            }
+
+            currentToken = manualToken; // Set currentToken for API testing
+
+            // Display manual token
+            document.getElementById('accessToken').textContent = manualToken;
+
+            // Try to get user info from Facebook with this token (optional, for verification)
+            fetch(`https://graph.facebook.com/me?fields=id,name,email,picture&access_token=${manualToken}`)
+                .then(response => response.json())
+                .then(data => {
+                    if (data.error) {
+                        document.getElementById('userInfo').innerHTML =
+                            `<div class="error">Error validating manual token with Facebook Graph API: ${data.error.message}</div>`;
+                    } else {
+                        document.getElementById('userInfo').innerHTML =
+                            `<strong>Facebook ID:</strong> ${data.id}<br>
+                            <strong>Name:</strong> ${data.name}<br>
+                            <strong>Email:</strong> ${data.email || 'Not provided'}<br>
+                            <strong>Picture:</strong> ${data.picture ? `<img src="${data.picture.data.url}" width="50" height="50">` : 'Not available'}<br>
+                            <em>(Token expiration for manual token not available here)</em>`;
+                    }
+
+                    // Show sections regardless of Graph API user info success, as the token might still work with your backend
+                    document.getElementById('tokenInfo').style.display = 'block';
+                    document.getElementById('apiTest').style.display = 'block';
+                })
+                .catch(error => {
+                    document.getElementById('userInfo').innerHTML =
+                        `<div class="error">Network error while validating manual token with Facebook: ${error.message}</div>`;
+                    // Still show sections for API testing, as network error doesn't mean the token is invalid for your backend
+                    document.getElementById('tokenInfo').style.display = 'block';
+                    document.getElementById('apiTest').style.display = 'block';
+                });
+        }
+
+        // Opens Facebook Graph API Explorer in a new tab
+        function openGraphExplorer() {
+            window.open('https://developers.facebook.com/tools/explorer/', '_blank');
+        }
+
+        // Initial setup on page load: hide login/token sections
+        window.addEventListener('DOMContentLoaded', (event) => {
+            // Keep loginSection hidden until SDK is initialized
+            document.getElementById('loginSection').style.display = 'none';
+            document.getElementById('tokenInfo').style.display = 'none';
+            document.getElementById('apiTest').style.display = 'none';
+        });
+
+        // IMPORTANT: No automatic SDK initialization on window.onload here.
+        // It's now explicitly triggered by the user clicking "Initialize Facebook SDK".
+    </script>
+</body>
+</html>
