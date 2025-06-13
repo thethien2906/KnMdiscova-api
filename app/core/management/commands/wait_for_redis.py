@@ -11,8 +11,8 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         self.stdout.write('Waiting for Redis...')
         r = redis.Redis(
-            host=settings.REDIS_HOST,
-            port=settings.REDIS_PORT
+            host=6379,
+            port=6379
         )
         retries = 30
         while retries > 0:

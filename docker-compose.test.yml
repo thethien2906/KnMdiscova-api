@@ -39,13 +39,13 @@ services:
     volumes:
       - ./app:/app
     command: celery -A app worker --loglevel=info --queues=default,slots
+    env_file:
+      - .env.dev
     depends_on:
       - db
       - redis
     environment:
       - DJANGO_SETTINGS_MODULE=app.settings.development
-      - REDIS_HOST=${REDIS_HOST:-}
-      - REDIS_PORT=${REDIS_PORT:-}
 
   celery-beat:
     build:
@@ -55,13 +55,13 @@ services:
     volumes:
       - ./app:/app
     command: celery -A app beat --loglevel=info --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    env_file:
+      - .env.dev
     depends_on:
       - db
       - redis
     environment:
       - DJANGO_SETTINGS_MODULE=app.settings.development
-      - REDIS_HOST=${REDIS_HOST:-}
-      - REDIS_PORT=${REDIS_PORT:-}
 
 volumes:
   redis-data:
