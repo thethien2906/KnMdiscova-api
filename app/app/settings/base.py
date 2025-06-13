@@ -46,6 +46,8 @@ INSTALLED_APPS = [
     'psychologists',
     'appointments',
     'payments',
+    # Celery
+    'django_celery_beat',
 ]
 
 MIDDLEWARE = [
@@ -259,7 +261,8 @@ PAYMENT_FRONTEND_URLS = {
 AUTO_GENERATE_APPOINTMENT_SLOTS = os.environ.get('AUTO_GENERATE_APPOINTMENT_SLOTS', 'True') == 'True'
 
 # How many days ahead to generate slots automatically
-AUTO_GENERATION_DAYS_AHEAD = int(os.environ.get('AUTO_GENERATION_DAYS_AHEAD', '90'))
+AUTO_GENERATION_DAYS_AHEAD = int(os.environ.get('AUTO_GENERATION_DAYS_AHEAD', '30'))
+
 
 
 

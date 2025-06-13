@@ -4,6 +4,7 @@ from django.utils.translation import gettext_lazy as _
 from django.core.exceptions import ValidationError
 from django.db.models import Q
 from django.utils import timezone
+from django.conf import settings
 from datetime import date, datetime, timedelta, time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
@@ -85,7 +86,7 @@ class AppointmentSlotService:
         Args:
             availability_block: PsychologistAvailability instance
             date_from: Start date for slot generation (default: today)
-            date_to: End date for slot generation (default: +90 days)
+            date_to: End date for slot generation (default: +30 days)
 
         Returns:
             List of created AppointmentSlot instances
@@ -96,7 +97,7 @@ class AppointmentSlotService:
         if not date_from:
             date_from = date.today()
         if not date_to:
-            date_to = date_from + timedelta(days=90)  # Generate 3 months ahead
+            date_to = date_from + timedelta(days=settings.AUTO_GENERATION_DAYS_AHEAD)
 
         created_slots = []
 
@@ -252,7 +253,7 @@ class AppointmentSlotService:
         """
         try:
             date_from = date.today()
-            date_to = date_from + timedelta(days=90)  # 90 days ahead as requested
+            date_to = date_from + timedelta(days=settings.AUTO_GENERATION_DAYS_AHEAD)
 
             slots = AppointmentSlotService.generate_slots_from_availability_block(
                 availability_block, date_from, date_to
