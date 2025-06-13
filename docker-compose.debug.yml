@@ -5,9 +5,27 @@ services:
       args:
         - DEV=true
     environment:
-      - DJANGO_SETTINGS_MODULE=app.settings.development
-    env_file:
-      - .env
+      # Use environment variables from GitHub Actions, with fallbacks for local dev
+      - DEBUG=${DEBUG:-true}
+      - DB_HOST=${DB_HOST:-db}
+      - DB_NAME=${DB_NAME:-devdb}
+      - DB_USER=${DB_USER:-devuser}
+      - DB_PASSWORD=${DB_PASSWORD:-changeme}  # Match your CI password
+      - SECRET_KEY=${SECRET_KEY:-your-local-dev-secret}
+      - EMAIL_BACKEND=${EMAIL_BACKEND:-django.core.mail.backends.console.EmailBackend}
+      - ALLOWED_HOSTS=${ALLOWED_HOSTS:-localhost,127.0.0.1}
+      - EMAIL_HOST=${EMAIL_HOST:-}
+      - EMAIL_PORT=${EMAIL_PORT:-587}
+      - EMAIL_USE_TLS=${EMAIL_USE_TLS:-true}
+      - EMAIL_HOST_USER=${EMAIL_HOST_USER:-}
+      - EMAIL_HOST_PASSWORD=${EMAIL_HOST_PASSWORD:-}
+      - DEFAULT_FROM_EMAIL=${DEFAULT_FROM_EMAIL:-K&Mdiscova <noreply@kmdiscova.com>}
+      - FRONTEND_URL= ${FRONTEND_URL:-http://localhost:8000}
+      - SUPPORT_EMAIL=${SUPPORT_EMAIL:-support@kmdiscova.com}
+      - COMPANY_ADDRESS=${COMPANY_ADDRESS:-}
+      - REDIS_HOST=${REDIS_HOST:-}
+      - REDIS_PORT=${REDIS_PORT:-}
+
     depends_on:
       - db
       - redis
