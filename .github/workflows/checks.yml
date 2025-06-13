@@ -17,6 +17,9 @@ jobs:
             - name: Checkout code
               uses: actions/checkout@v2
             - name: Wait for Redis
+              env:
+                REDIS_HOST: redis
+                REDIS_PORT: 6379
               run: |
                 echo "Waiting for Redis (redis:6379)..."
                 for i in $(seq 1 30); do
