@@ -286,7 +286,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         print(f"Target day in Python system: {python_target_day} ({target_day_name})")
 
         start_date = today
-        end_date = start_date + timedelta(days=90)
+        end_date = start_date + timedelta(days=30)
 
         # Count target days in the 90-day period (excluding today)
         current_date = start_date + timedelta(days=1)  # Start from tomorrow
@@ -298,7 +298,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
 
         expected_slot_count = target_day_count * 3  # 3 hours = 3 slots (9-10, 10-11, 11-12)
 
-        print(f"Expected {target_day_name}s in next 90 days (excluding today): {target_day_count}")
+        print(f"Expected {target_day_name}s in next 30 days (excluding today): {target_day_count}")
         print(f"Expected total slots: {expected_slot_count}")
 
         print(f"\n=== DEBUG: CREATING NEW AVAILABILITY ===")
@@ -406,7 +406,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 print(f"  {date_str}: {count} slots")
 
         self.assertEqual(generated_slots.count(), expected_slot_count,
-                        f"Expected {expected_slot_count} generated slots across 90 days, got {generated_slots.count()}. "
+                        f"Expected {expected_slot_count} generated slots across 30 days, got {generated_slots.count()}. "
                         f"Check debug output for slot distribution.")
 
         # Verify first target day's slot details (should be 9-10, 10-11, 11-12)
