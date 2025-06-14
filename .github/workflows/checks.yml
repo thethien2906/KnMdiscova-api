@@ -1,49 +1,55 @@
----
 name: Checks
 
 on: [push]
 
 jobs:
-    test:
-        name: Test
+  test:
+    name: Test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Login to Docker Hub
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USER }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-        runs-on: ubuntu-latest
-        steps:
-            - name: Login to Docker Hub
-              uses: docker/login-action@v2
-              with:
-                  username: ${{ secrets.DOCKERHUB_USER }}
-                  password: ${{ secrets.DOCKERHUB_TOKEN }}
-            - name: Checkout code
-              uses: actions/checkout@v2
-            - name: Test
-              env:
-                DEBUG: False
-                DB_HOST: db
-                DB_NAME: testdb
-                DB_USER: testuser
-                DB_PASSWORD: testpass
-                SECRET_KEY: test-secret-key-for-ci
-                EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
-                ALLOWED_HOSTS: localhost,127.0.0.1
-                # Email settings (have defaults but good to be explicit)
-                EMAIL_HOST: ""
-                EMAIL_PORT: 587
-                EMAIL_USE_TLS: True
-                EMAIL_HOST_USER: ""
-                EMAIL_HOST_PASSWORD: ""
-                DEFAULT_FROM_EMAIL: "K&Mdiscova <noreply@kmdiscova.com>"
-                # Frontend URL for tests
-                FRONTEND_URL: "http://localhost:8000"
-                # Support email
-                SUPPORT_EMAIL: "support@kmdiscova.com"
-                COMPANY_ADDRESS: ""
-                # CORS Settings
-                CORS_ALLOW_ALL_ORIGINS: False
-                CORS_ALLOW_CREDENTIALS: True
-                # Stripe credentials
-                STRIPE_ENABLED: True
-                STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY }}
-                STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
-                STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
-              run: docker compose run --rm app ash -c "python manage.py wait_for_db && python manage.py test"
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Start services
+        run: docker compose up -d # Start all services (app, db, redis) in the background
+
+      - name: Test
+        env:
+          # Your environment variables remain the same
+          DEBUG: False
+          DB_HOST: db
+          DB_NAME: testdb
+          DB_USER: testuser
+          DB_PASSWORD: testpass
+          SECRET_KEY: test-secret-key-for-ci
+          EMAIL_BACKEND: django.core.mail.backends.console.EmailBackend
+          ALLOWED_HOSTS: localhost,127.0.0.1
+          EMAIL_HOST: ""
+          EMAIL_PORT: 587
+          EMAIL_USE_TLS: True
+          EMAIL_HOST_USER: ""
+          EMAIL_HOST_PASSWORD: ""
+          DEFAULT_FROM_EMAIL: "K&Mdiscova <noreply@kmdiscova.com>"
+          FRONTEND_URL: "http://localhost:8000"
+          SUPPORT_EMAIL: "support@kmdiscova.com"
+          COMPANY_ADDRESS: ""
+          CORS_ALLOW_ALL_ORIGINS: False
+          CORS_ALLOW_CREDENTIALS: True
+          STRIPE_ENABLED: True
+          STRIPE_PUBLISHABLE_KEY: ${{ secrets.STRIPE_TEST_PUBLISHABLE_KEY }}
+          STRIPE_SECRET_KEY: ${{ secrets.STRIPE_TEST_SECRET_KEY }}
+          STRIPE_WEBHOOK_SECRET: ${{ secrets.STRIPE_TEST_WEBHOOK_SECRET }}
+          REDIS_HOST: redis
+          REDIS_PORT: 6379
+        run: |
+          docker compose exec -T app ash -c "python manage.py wait_for_db && python manage.py wait_for_redis && python manage.py test"
+
+      - name: Stop Docker Compose Services
+        if: always()
+        run: docker compose down

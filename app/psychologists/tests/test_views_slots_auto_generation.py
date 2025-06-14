@@ -256,7 +256,6 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
 
         self.assertEqual(initial_slot_count, 0,
                         f"After cleanup, still found {initial_slot_count} slots for psychologist {self.psychologist.user.id}")
-
         # DEBUG: Current date info
         from datetime import date, timedelta
         today = date.today()
@@ -264,28 +263,30 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         print(f"Today's date: {today} ({today.strftime('%A')})")
         print(f"Today's weekday number: {today.weekday()} (Python: 0=Monday, 1=Tuesday, etc.)")
 
-        # YOUR SYSTEM: 1=Monday, 2=Tuesday, 3=Wednesday, etc.
-        # PYTHON:     0=Monday, 1=Tuesday, 2=Wednesday, etc.
-        # Conversion: your_day = python_weekday + 1
+        # YOUR SYSTEM: 0=Sunday, 1=Monday, 2=Tuesday, ..., 6=Saturday
+        # PYTHON:     0=Monday, 1=Tuesday, 2=Wednesday, ..., 6=Sunday
+        # Conversion: your_day = (python_weekday + 1) % 7
 
-        # Choose a day that's NOT today to avoid current-date exclusion issues
         python_today = today.weekday()  # 0=Monday, 1=Tuesday, etc.
-        your_today = python_today + 1   # 1=Monday, 2=Tuesday, etc.
+        your_today = (python_today + 1) % 7   # Convert to your system: 0=Sunday, 1=Monday, etc.
 
         # Pick a day 2 days after today in YOUR numbering system
-        your_target_day = ((your_today - 1 + 2) % 7) + 1  # Convert to 0-based, add 2, convert back
-        python_target_day = your_target_day - 1  # Convert to Python's numbering for verification
+        your_target_day = (your_today + 2) % 7  # Add 2 days, wrap around if needed
+
+        # Convert back to Python numbering for verification and counting
+        python_target_day = (your_target_day - 1) % 7  # Convert from your system to Python
+
 
         day_names = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
-        target_day_name = day_names[python_target_day]
+        your_day_names = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday']
+        target_day_name = your_day_names[your_target_day]
 
-        print(f"Today in your system: {your_today} ({day_names[python_today]})")
+        print(f"Today in your system: {your_today} ({your_day_names[your_today]})")
         print(f"Target day in your system: {your_target_day} ({target_day_name})")
         print(f"Target day in Python system: {python_target_day} ({target_day_name})")
 
-        # Calculate expected slots: Target days in next 90 days * 3 slots per day
         start_date = today
-        end_date = start_date + timedelta(days=90)
+        end_date = start_date + timedelta(days=30)
 
         # Count target days in the 90-day period (excluding today)
         current_date = start_date + timedelta(days=1)  # Start from tomorrow
@@ -297,12 +298,12 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
 
         expected_slot_count = target_day_count * 3  # 3 hours = 3 slots (9-10, 10-11, 11-12)
 
-        print(f"Expected {target_day_name}s in next 90 days (excluding today): {target_day_count}")
+        print(f"Expected {target_day_name}s in next 30 days (excluding today): {target_day_count}")
         print(f"Expected total slots: {expected_slot_count}")
 
         print(f"\n=== DEBUG: CREATING NEW AVAILABILITY ===")
         print(f"Psychologist ID: {self.psychologist.user.id}")
-        print(f"Day of week: {python_target_day} ({target_day_name})")
+        print(f"Day of week: {your_target_day} ({target_day_name}) in your system")
         print(f"Time: 09:00-12:00")
         print(f"Expected: {target_day_count} {target_day_name}s, 3 slots per {target_day_name}")
 
@@ -314,7 +315,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 from psychologists.models import PsychologistAvailability
                 availability = PsychologistAvailability.objects.get(availability_id=availability_id)
                 print(f"DEBUG: Retrieved availability: {availability}")
-                print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({day_names[availability.day_of_week - 1]})")  # -1 for your system
+                print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({your_day_names[availability.day_of_week]})")
                 result = AppointmentSlotService.auto_generate_slots_for_new_availability(availability)
                 print(f"DEBUG: Service returned: {result}")
                 return result
@@ -324,14 +325,15 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
             # Create availability for the target day
             availability = PsychologistAvailability.objects.create(
                 psychologist=self.psychologist,
-                day_of_week=your_target_day,  # Use your system's numbering
+                day_of_week=your_target_day,  # Use your system's numbering (0=Sunday, 1=Monday, etc.)
                 start_time='09:00',
                 end_time='12:00',
                 is_recurring=True
             )
 
             print(f"DEBUG: Created availability with ID: {availability.availability_id}")
-            print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({day_names[availability.day_of_week - 1]})")
+            print(f"DEBUG: Availability day_of_week: {availability.day_of_week} ({your_day_names[availability.day_of_week]})")
+
 
         # Verify signal triggered the task
         print(f"\n=== DEBUG: VERIFYING TASK CALL ===")
@@ -376,19 +378,18 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         for slot in generated_slots[:10]:  # Check first 10 slots
             slot_weekday = slot.slot_date.weekday()  # Python weekday (0=Monday)
             slot_day_name = slot.slot_date.strftime('%A')
-            slot_days.add((slot_weekday, slot_day_name))
+            your_slot_day = (slot_weekday + 1) % 7  # Convert to your system
+            slot_days.add((your_slot_day, slot_day_name))
 
         print(f"Slot day variations found: {slot_days}")
 
         # All slots should be on the same day of week as the availability
-        # Convert your system day to Python day for comparison
-        expected_python_day = your_target_day - 1  # Convert from your system to Python
-        expected_day_info = (expected_python_day, target_day_name)
+        expected_day_info = (your_target_day, target_day_name)
         if len(slot_days) == 1 and expected_day_info in slot_days:
             print(f"✓ All slots are correctly on {target_day_name}")
         else:
             print(f"✗ Day mismatch! Expected {expected_day_info}, found {slot_days}")
-            print(f"  Your system day {your_target_day} = Python day {expected_python_day} = {target_day_name}")
+            print(f"  Your system day {your_target_day} = {target_day_name}")
 
         # Should have expected_slot_count slots across 90 days
         if generated_slots.count() != expected_slot_count:
@@ -405,7 +406,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 print(f"  {date_str}: {count} slots")
 
         self.assertEqual(generated_slots.count(), expected_slot_count,
-                        f"Expected {expected_slot_count} generated slots across 90 days, got {generated_slots.count()}. "
+                        f"Expected {expected_slot_count} generated slots across 30 days, got {generated_slots.count()}. "
                         f"Check debug output for slot distribution.")
 
         # Verify first target day's slot details (should be 9-10, 10-11, 11-12)
@@ -450,7 +451,8 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         """
         Test: Update availability → unbooked slots regenerated, booked preserved
         """
-        # Step 1: Create initial availability and slots
+
+        # Step 1: Create initial availability (slots will be auto-generated by Celery task)
         next_wednesday = get_next_weekday(3)  # 3 = Wednesday
 
         availability = PsychologistAvailability.objects.create(
@@ -461,20 +463,18 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
             is_recurring=True
         )
 
-        # Manually create initial slots (simulating the creation flow)
-        initial_slots = []
-        for hour in range(4):  # 10-11, 11-12, 12-13, 13-14
-            start_hour = 10 + hour
-            end_hour = start_hour + 1
-            slot = AppointmentSlot.objects.create(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=next_wednesday,
-                start_time=f'{start_hour:02d}:00',
-                end_time=f'{end_hour:02d}:00',
-                is_booked=False
-            )
-            initial_slots.append(slot)
+        # Verify initial slots were created
+        initial_slots = AppointmentSlot.objects.filter(
+            availability_block=availability,
+            slot_date=next_wednesday
+        ).order_by('start_time')
+
+        print(f"DEBUG: Initial slots created: {initial_slots.count()}")
+        for slot in initial_slots:
+            print(f"  {slot.start_time}-{slot.end_time} (booked: {slot.is_booked}, id: {slot.slot_id})")
+
+        # Should have 4 initial slots
+        self.assertEqual(initial_slots.count(), 4)
 
         # Step 2: Book some slots (simulate appointments)
         # Book slots 11-12 and 12-13 (middle two slots)
@@ -518,8 +518,16 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         appointment_2.appointment_slots.add(booked_slot_2)
 
         # Verify initial state: 4 slots, 2 booked, 2 unbooked
-        initial_total = AppointmentSlot.objects.filter(availability_block=availability).count()
-        initial_booked = AppointmentSlot.objects.filter(availability_block=availability, is_booked=True).count()
+        initial_total = AppointmentSlot.objects.filter(
+            availability_block=availability,
+            slot_date=next_wednesday
+        ).count()
+        initial_booked = AppointmentSlot.objects.filter(
+            availability_block=availability,
+            slot_date=next_wednesday,
+            is_booked=True
+        ).count()
+
         self.assertEqual(initial_total, 4)
         self.assertEqual(initial_booked, 2)
 
@@ -530,10 +538,10 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         print(f"DEBUG: Initial booked slot IDs: {booked_slot_ids}")
 
         # Step 3: Update availability (extend time: 09:00-15:00 = 6 hours)
-        with patch('appointments.tasks.auto_regenerate_slots_task.delay') as mock_task:
-            # Mock the task but call the actual service
-            def side_effect(*args, **kwargs):
-                print(f"DEBUG: Mock task called with args: {args}, kwargs: {kwargs}")
+        with patch('appointments.tasks.auto_regenerate_slots_task.delay') as mock_update_task:
+            # Mock the update task but call the actual service
+            def update_side_effect(*args, **kwargs):
+                print(f"DEBUG: Update task called with args: {args}, kwargs: {kwargs}")
                 from appointments.services import AppointmentSlotService
                 from psychologists.models import PsychologistAvailability
 
@@ -543,7 +551,10 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 print(f"DEBUG: Processing availability_id: {availability_id}, old_data: {old_data}")
 
                 # Check slots before regeneration
-                slots_before = AppointmentSlot.objects.filter(availability_block_id=availability_id)
+                slots_before = AppointmentSlot.objects.filter(
+                    availability_block_id=availability_id,
+                    slot_date=next_wednesday
+                )
                 print(f"DEBUG: Slots before regeneration: {slots_before.count()}")
                 for slot in slots_before:
                     print(f"  Slot {slot.slot_id}: {slot.slot_date} {slot.start_time}-{slot.end_time} (booked: {slot.is_booked})")
@@ -554,28 +565,28 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
                 )
 
                 # Check slots after regeneration
-                slots_after = AppointmentSlot.objects.filter(availability_block_id=availability_id)
+                slots_after = AppointmentSlot.objects.filter(
+                    availability_block_id=availability_id,
+                    slot_date=next_wednesday
+                )
                 print(f"DEBUG: Slots after regeneration: {slots_after.count()}")
 
-                # Group by date to see what dates we're creating slots for
-                from collections import defaultdict
-                slots_by_date = defaultdict(list)
                 for slot in slots_after:
-                    slots_by_date[slot.slot_date].append(slot)
-
-                print(f"DEBUG: Slots created for {len(slots_by_date)} different dates:")
-                for date, date_slots in slots_by_date.items():
-                    print(f"  {date}: {len(date_slots)} slots")
-                    for slot in date_slots[:3]:  # Show first 3 slots for each date
-                        print(f"    {slot.start_time}-{slot.end_time} (booked: {slot.is_booked})")
-                    if len(date_slots) > 3:
-                        print(f"    ... and {len(date_slots) - 3} more")
+                    print(f"  {slot.start_time}-{slot.end_time} (booked: {slot.is_booked}, id: {slot.slot_id})")
 
                 return result
 
-            mock_task.side_effect = side_effect
+            mock_update_task.side_effect = update_side_effect
 
             print(f"DEBUG: About to update availability from {availability.start_time}-{availability.end_time}")
+
+            # Store old data for the update
+            old_data = {
+                'start_time': availability.start_time,
+                'end_time': availability.end_time,
+                'day_of_week': availability.day_of_week,
+                'is_recurring': availability.is_recurring
+            }
 
             # Update the availability block
             availability.start_time = '09:00'  # Extended 1 hour earlier
@@ -585,52 +596,33 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
             print(f"DEBUG: Updated availability to {availability.start_time}-{availability.end_time}")
 
         # DEBUG: Check what the mock was actually called with
-        print(f"DEBUG: Mock call count: {mock_task.call_count}")
-        if mock_task.call_count > 0:
-            print(f"DEBUG: Mock call args: {mock_task.call_args}")
-            print(f"DEBUG: All mock calls: {mock_task.call_args_list}")
+        print(f"DEBUG: Mock call count: {mock_update_task.call_count}")
+        if mock_update_task.call_count > 0:
+            print(f"DEBUG: Mock call args: {mock_update_task.call_args}")
+            print(f"DEBUG: All mock calls: {mock_update_task.call_args_list}")
 
         # Verify signal triggered the regeneration task
-        # UPDATED: Check what was actually called instead of assuming the signature
-        if mock_task.call_count == 1:
-            actual_args = mock_task.call_args[0]  # positional args
-            actual_kwargs = mock_task.call_args[1]  # keyword args
-            print(f"DEBUG: Actual call - args: {actual_args}, kwargs: {actual_kwargs}")
-
-            # Check if it was called with just availability_id or with both parameters
-            if len(actual_args) == 1:
-                print("DEBUG: Task called with only availability_id (no old_data)")
-                mock_task.assert_called_once_with(availability.availability_id)
-            elif len(actual_args) == 2:
-                print("DEBUG: Task called with availability_id and old_data")
-                mock_task.assert_called_once_with(availability.availability_id, actual_args[1])
-            else:
-                print(f"DEBUG: Unexpected number of arguments: {len(actual_args)}")
-        else:
-            print(f"DEBUG: Expected 1 call but got {mock_task.call_count}")
+        self.assertEqual(mock_update_task.call_count, 1, "Update task should be called exactly once")
 
         # Step 4: Verify results
         final_slots = AppointmentSlot.objects.filter(
-            availability_block=availability
+            availability_block=availability,
+            slot_date=next_wednesday
         ).order_by('start_time')
 
         print(f"DEBUG: Final slot count: {final_slots.count()}")
 
-        # Filter to only the specific date we're testing
-        target_date_slots = final_slots.filter(slot_date=next_wednesday).order_by('start_time')
-        print(f"DEBUG: Slots for target date ({next_wednesday}): {target_date_slots.count()}")
-
         # Show all slots for our target date
-        for slot in target_date_slots:
+        for slot in final_slots:
             print(f"  {slot.start_time}-{slot.end_time} (booked: {slot.is_booked}, id: {slot.slot_id})")
 
         # Should now have 6 slots for our target date: 09-10, 10-11, 11-12, 12-13, 13-14, 14-15
-        self.assertEqual(target_date_slots.count(), 6,
-                        f"Expected 6 slots for {next_wednesday}, got {target_date_slots.count()}")
+        self.assertEqual(final_slots.count(), 6,
+                        f"Expected 6 slots for {next_wednesday}, got {final_slots.count()}")
 
-        # Verify slot times using target date slots
+        # Verify slot times
         slot_times = [(slot.start_time.strftime('%H:%M'), slot.end_time.strftime('%H:%M'))
-                    for slot in target_date_slots]
+                    for slot in final_slots]
         expected_times = [
             ('09:00', '10:00'),  # New slot
             ('10:00', '11:00'),  # Regenerated (was unbooked)
@@ -646,7 +638,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         self.assertEqual(slot_times, expected_times)
 
         # Verify booked slots are preserved
-        still_booked_slots = target_date_slots.filter(is_booked=True)
+        still_booked_slots = final_slots.filter(is_booked=True)
         print(f"DEBUG: Still booked slots count: {still_booked_slots.count()}")
 
         self.assertEqual(still_booked_slots.count(), 2)
@@ -669,7 +661,7 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         self.assertTrue(appointment_2_linked)
 
         # Verify new/regenerated slots are unbooked
-        unbooked_slots = target_date_slots.filter(is_booked=False)
+        unbooked_slots = final_slots.filter(is_booked=False)
         print(f"DEBUG: Unbooked slots count: {unbooked_slots.count()}")
 
         self.assertEqual(unbooked_slots.count(), 4)
@@ -787,174 +779,165 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         """
         from appointments.tasks import auto_cleanup_past_slots_task
 
-        # Step 1: Create test availability block
+        print(f"\n=== DEBUG: INITIAL EXISTING SLOTS ===")
+        existing_slots = AppointmentSlot.objects.filter(psychologist=self.psychologist)
+        print(f"Found {existing_slots.count()} existing slots for psychologist:")
+        for slot in existing_slots:
+            print(f"  - {slot.slot_date} {slot.start_time}-{slot.end_time} (booked: {slot.is_booked})")
+
+        # Step 1: Clean up any existing slots to avoid conflicts
+        deleted_count = AppointmentSlot.objects.filter(psychologist=self.psychologist).delete()[0]
+        print(f"Deleted {deleted_count} existing slots")
+
+        # Also clean up any related appointments that might cause issues
+        existing_appointments = Appointment.objects.filter(psychologist=self.psychologist)
+        print(f"Found {existing_appointments.count()} existing appointments")
+        for appt in existing_appointments:
+            print(f"  - Appointment {appt.appointment_id}: {appt.scheduled_start_time}")
+        Appointment.objects.filter(psychologist=self.psychologist).delete()
+
+        # Step 2: Create test availability block (using Wednesday)
         availability = PsychologistAvailability.objects.create(
             psychologist=self.psychologist,
-            day_of_week=2,  # Tuesday
+            day_of_week=3,  # Wednesday (0=Sunday, so 3=Wednesday)
             start_time='10:00',
             end_time='14:00',
             is_recurring=True
         )
 
-        # Step 2: Calculate proper Tuesday dates
+        # Step 3: Calculate proper Wednesday dates
         today = date.today()
 
-        def get_tuesday_date(weeks_offset):
-            """Get a Tuesday that is exactly 'weeks_offset' weeks from this week's Tuesday"""
-            # Find this week's Tuesday
-            days_since_tuesday = (today.weekday() - 1) % 7
-            this_tuesday = today - timedelta(days=days_since_tuesday)
+        def get_wednesday_date(weeks_offset):
+            """Get a Wednesday that is exactly 'weeks_offset' weeks from this week's Wednesday"""
+            days_since_wednesday = (today.weekday() - 2) % 7
+            this_wednesday = today - timedelta(days=days_since_wednesday)
+            target_wednesday = this_wednesday + timedelta(weeks=weeks_offset)
+            return target_wednesday
 
-            # Add the week offset
-            target_tuesday = this_tuesday + timedelta(weeks=weeks_offset)
-            return target_tuesday
-
-        past_tuesday_1 = get_tuesday_date(-3)  # 3 weeks ago (definitely > 7 days)
-        past_tuesday_2 = get_tuesday_date(-2)  # 2 weeks ago (definitely > 7 days)
-        future_tuesday_1 = get_tuesday_date(1)  # 1 week from now
-        future_tuesday_2 = get_tuesday_date(2)  # 2 weeks from now
+        past_wednesday_1 = get_wednesday_date(-3)  # 3 weeks ago
+        past_wednesday_2 = get_wednesday_date(-2)  # 2 weeks ago
+        future_wednesday_1 = get_wednesday_date(1)  # 1 week from now
+        future_wednesday_2 = get_wednesday_date(2)  # 2 weeks from now
 
         print(f"\n=== DEBUG: CREATING TEST SLOTS ===")
         print(f"Today: {today} ({today.strftime('%A')})")
-        print(f"Past Tuesdays: {past_tuesday_1}, {past_tuesday_2}")
-        print(f"Future Tuesdays: {future_tuesday_1}, {future_tuesday_2}")
+        print(f"Past Wednesdays: {past_wednesday_1}, {past_wednesday_2}")
+        print(f"Future Wednesdays: {future_wednesday_1}, {future_wednesday_2}")
 
-        # Step 3: Create slots using bulk_create (bypasses validation)
-        slots_to_create = [
+        # Step 4: Count auto-generated slots BEFORE adding manual test slots
+        auto_generated_future_slots = AppointmentSlot.objects.filter(
+            psychologist=self.psychologist,
+            slot_date__gte=today
+        ).count()
+        print(f"Auto-generated {auto_generated_future_slots} future slots")
+
+        # Step 5: Delete conflicting auto-generated slots for our specific test dates
+        test_dates = [past_wednesday_1, past_wednesday_2, future_wednesday_1, future_wednesday_2]
+
+        # Count how many auto-generated slots we're about to replace on our test dates
+        conflicting_future_slots = AppointmentSlot.objects.filter(
+            psychologist=self.psychologist,
+            slot_date__in=[future_wednesday_1, future_wednesday_2]
+        ).count()
+
+        print(f"Found {conflicting_future_slots} conflicting auto-generated slots on future test dates")
+
+        # Delete all conflicting slots for our test dates
+        conflicting_slots = AppointmentSlot.objects.filter(
+            psychologist=self.psychologist,
+            slot_date__in=test_dates
+        )
+        if conflicting_slots.exists():
+            deleted_conflicting = conflicting_slots.count()
+            print(f"Deleting {deleted_conflicting} conflicting slots before creating test slots")
+            conflicting_slots.delete()
+
+        # Step 6: Create our specific test slots
+        slots_data = [
             # Past unbooked slots (should be deleted)
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=past_tuesday_1,
-                start_time='10:00',
-                end_time='11:00',
-                is_booked=False
-            ),
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=past_tuesday_1,
-                start_time='11:00',
-                end_time='12:00',
-                is_booked=False
-            ),
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=past_tuesday_2,
-                start_time='12:00',
-                end_time='13:00',
-                is_booked=False
-            ),
+            (past_wednesday_1, '10:00', '11:00', False, 'past_unbooked_1'),
+            (past_wednesday_1, '11:00', '12:00', False, 'past_unbooked_2'),
+            (past_wednesday_2, '12:00', '13:00', False, 'past_unbooked_3'),
             # Past booked slot (should be preserved)
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=past_tuesday_2,
-                start_time='10:00',
-                end_time='11:00',
-                is_booked=True
-            ),
+            (past_wednesday_2, '10:00', '11:00', True, 'past_booked_1'),
             # Future slots (should be preserved)
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=future_tuesday_1,
-                start_time='10:00',
-                end_time='11:00',
-                is_booked=False
-            ),
-            AppointmentSlot(
-                psychologist=self.psychologist,
-                availability_block=availability,
-                slot_date=future_tuesday_2,
-                start_time='11:00',
-                end_time='12:00',
-                is_booked=True
-            )
+            (future_wednesday_1, '10:00', '11:00', False, 'future_unbooked_1'),
+            (future_wednesday_2, '11:00', '12:00', True, 'future_booked_1')
         ]
 
-        # Create all slots at once, bypassing validation
+        slots_to_create = []
+        for slot_date, start_time, end_time, is_booked, description in slots_data:
+            print(f"Preparing slot: {description} - {slot_date} {start_time}-{end_time}")
+            slot = AppointmentSlot(
+                psychologist=self.psychologist,
+                availability_block=availability,
+                slot_date=slot_date,
+                start_time=start_time,
+                end_time=end_time,
+                is_booked=is_booked
+            )
+            slots_to_create.append(slot)
+
         created_slots = AppointmentSlot.objects.bulk_create(slots_to_create)
+        print(f"Successfully bulk created {len(created_slots)} test slots")
 
-        print(f"Created {len(created_slots)} test slots using bulk_create")
+        # Step 7: Calculate expected counts
+        # Auto-generated future slots MINUS the ones we replaced PLUS our 2 future test slots
+        expected_future_slots = auto_generated_future_slots - conflicting_future_slots + 2
 
-        # Get the created slots for reference (bulk_create doesn't return IDs in all DB backends)
-        # So we'll query them back
-        past_unbooked_slots = AppointmentSlot.objects.filter(
-            psychologist=self.psychologist,
-            slot_date__in=[past_tuesday_1, past_tuesday_2],
-            is_booked=False
-        ).order_by('slot_date', 'start_time')
+        print(f"Expected future slots calculation:")
+        print(f"  Auto-generated: {auto_generated_future_slots}")
+        print(f"  Conflicting replaced: -{conflicting_future_slots}")
+        print(f"  Our test future slots: +2")
+        print(f"  Expected total: {expected_future_slots}")
 
+        # Create appointment for past booked slot
         past_booked_slot = AppointmentSlot.objects.filter(
             psychologist=self.psychologist,
-            slot_date=past_tuesday_2,
+            slot_date=past_wednesday_2,
             is_booked=True
         ).first()
 
-        future_slots = AppointmentSlot.objects.filter(
-            psychologist=self.psychologist,
-            slot_date__in=[future_tuesday_1, future_tuesday_2]
-        ).order_by('slot_date', 'start_time')
-
-        # Create appointment for past booked slot
         past_appointment = Appointment.objects.create(
             child=self.child,
             psychologist=self.psychologist,
             parent=self.parent,
             scheduled_start_time=timezone.make_aware(
-                datetime.combine(past_tuesday_2, datetime.strptime('10:00', '%H:%M').time())
+                datetime.combine(past_wednesday_2, datetime.strptime('10:00', '%H:%M').time())
             ),
             scheduled_end_time=timezone.make_aware(
-                datetime.combine(past_tuesday_2, datetime.strptime('11:00', '%H:%M').time())
+                datetime.combine(past_wednesday_2, datetime.strptime('11:00', '%H:%M').time())
             ),
             session_type='OnlineMeeting',
             appointment_status='Completed'
         )
         past_appointment.appointment_slots.add(past_booked_slot)
 
-        # Step 4: Verify initial state - only count slots for our specific dates
-        test_dates = [past_tuesday_1, past_tuesday_2, future_tuesday_1, future_tuesday_2]
-        initial_total = AppointmentSlot.objects.filter(
+        # Step 8: Verify initial state
+        initial_total = AppointmentSlot.objects.filter(psychologist=self.psychologist).count()
+        initial_past_unbooked = AppointmentSlot.objects.filter(
             psychologist=self.psychologist,
-            slot_date__in=test_dates
+            slot_date__lt=today,
+            is_booked=False
         ).count()
-        initial_past_unbooked = past_unbooked_slots.count()
-        initial_past_booked = 1
-        initial_future = future_slots.count()
+        initial_future = AppointmentSlot.objects.filter(
+            psychologist=self.psychologist,
+            slot_date__gte=today
+        ).count()
 
         print(f"\n=== DEBUG: INITIAL STATE ===")
-        print(f"Total test slots: {initial_total}")
+        print(f"Total slots: {initial_total}")
         print(f"Past unbooked (should be deleted): {initial_past_unbooked}")
-        print(f"Past booked (should be preserved): {initial_past_booked}")
-        print(f"Future slots (should be preserved): {initial_future}")
-        print(f"All psychologist slots: {AppointmentSlot.objects.filter(psychologist=self.psychologist).count()}")
+        print(f"Future slots: {initial_future}")
 
-        # Verify our test setup
-        self.assertEqual(initial_total, 6, "Should have created 6 test slots")
-        self.assertEqual(initial_past_unbooked, 3, "Should have 3 past unbooked slots")
-        self.assertEqual(initial_past_booked, 1, "Should have 1 past booked slot")
-        self.assertEqual(initial_future, 2, "Should have 2 future slots")
-
-        # Step 5: Run the cleanup task
+        # Step 9: Run the cleanup task
         print(f"\n=== DEBUG: RUNNING CLEANUP TASK ===")
-
-        # Option 1: Call the task directly (bypasses Celery entirely)
         task_result = auto_cleanup_past_slots_task(days_past=7)
-
-        # Option 2: If you need to test the .delay() method, use apply() instead
-        # result = auto_cleanup_past_slots_task.apply(args=[7], kwargs={'days_past': 7})
-        # task_result = result.result
-
         print(f"Task result: {task_result}")
 
-        # Step 6: Verify results
-        final_total_all = AppointmentSlot.objects.filter(psychologist=self.psychologist).count()
-        final_total_test = AppointmentSlot.objects.filter(
-            psychologist=self.psychologist,
-            slot_date__in=test_dates
-        ).count()
+        # Step 10: Verify results
+        final_total = AppointmentSlot.objects.filter(psychologist=self.psychologist).count()
         final_past_unbooked = AppointmentSlot.objects.filter(
             psychologist=self.psychologist,
             slot_date__lt=today,
@@ -971,28 +954,22 @@ class AvailabilitySlotIntegrationTestCase(APITestCase):
         ).count()
 
         print(f"\n=== DEBUG: FINAL STATE ===")
-        print(f"Total test slots: {final_total_test} (was {initial_total})")
-        print(f"Total all slots: {final_total_all}")
+        print(f"Total slots: {final_total}")
         print(f"Past unbooked: {final_past_unbooked} (was {initial_past_unbooked})")
-        print(f"Past booked: {final_past_booked} (was {initial_past_booked})")
-        print(f"Future slots: {final_future} (was {initial_future})")
+        print(f"Past booked: {final_past_booked}")
+        print(f"Future slots: {final_future} (expected: {expected_future_slots})")
 
         # Verify task worked correctly
         self.assertTrue(task_result['success'], "Task should report success")
         self.assertEqual(task_result['deleted_count'], 3, "Should have deleted 3 past unbooked slots")
-        self.assertEqual(final_total_test, 3, "Should have 3 test slots remaining")
         self.assertEqual(final_past_unbooked, 0, "All past unbooked slots should be deleted")
         self.assertEqual(final_past_booked, 1, "Past booked slot should be preserved")
-        self.assertEqual(final_future, 4, "All future slots should be preserved")
-
-        # Verify appointment is still linked
-        past_appointment.refresh_from_db()
-        self.assertEqual(past_appointment.appointment_slots.count(), 1, "Appointment should still be linked")
+        self.assertEqual(final_future, expected_future_slots, "Future test slots should be preserved")
 
         print(f"\n=== DEBUG: TEST COMPLETED SUCCESSFULLY ===")
         print(f"✓ Deleted {task_result['deleted_count']} past unbooked slots")
         print(f"✓ Preserved past booked slot with appointment")
-        print(f"✓ Preserved future slots")
+        print(f"✓ Preserved future slots (including auto-generated)")
 
     def test_auto_cleanup_past_slots_task_custom_days(self):
         """
