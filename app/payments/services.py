@@ -8,7 +8,6 @@ from datetime import timedelta
 from typing import Dict, Any, Optional, Tuple
 import logging
 import uuid
-
 from .models import Order, Payment, Transaction
 from .providers import get_payment_provider, get_default_payment_provider, PaymentProviderConfigError
 from users.models import User
@@ -806,14 +805,71 @@ class PaymentService:
 
                     # Generate meeting specifics
                     if session_type == 'OnlineMeeting':
-                        logger.info(f"DEBUG: Generating online meeting details")
-                        # Generate placeholder meeting details (you can enhance this later)
-                        meeting_id = f"meeting_{appointment.appointment_id.hex[:10]}"
-                        meeting_link = f"https://zoom.us/j/{meeting_id}"  # Placeholder
-                        appointment.meeting_id = meeting_id
-                        appointment.meeting_link = meeting_link
-                        appointment.save(update_fields=['meeting_id', 'meeting_link', 'updated_at'])
-                        logger.info(f"DEBUG: Online meeting details set - ID: {meeting_id}, Link: {meeting_link}")
+                        logger.info(f"DEBUG: Generating real online meeting details with Zoom")
+
+                        # Import the Zoom service from appointments app
+                        from appointments.services.zoom_service import ZoomService, ZoomMeetingCreationError
+                        from django.utils import timezone
+
+                        zoom_service = ZoomService()
+
+                        # Check if Zoom is enabled
+                        if zoom_service.is_enabled():
+                            try:
+                                # Create actual Zoom meeting
+                                meeting_data = zoom_service.create_meeting_for_appointment(appointment)
+
+                                # Update appointment with real meeting details
+                                appointment.meeting_id = meeting_data['meeting_id']
+                                appointment.meeting_link = meeting_data['meeting_link']
+
+                                # Store additional meeting data in metadata if needed
+                                appointment.metadata = appointment.metadata or {}
+                                appointment.metadata['zoom_meeting'] = {
+                                    'password': meeting_data['meeting_password'],
+                                    'host_start_url': meeting_data.get('host_start_url'),
+                                    'created_at': timezone.now().isoformat(),
+                                }
+
+                                appointment.save(update_fields=['meeting_id', 'meeting_link', 'metadata', 'updated_at'])
+
+                                logger.info(f"DEBUG: Created real Zoom meeting {meeting_data['meeting_id']} for appointment {appointment.appointment_id}")
+                                logger.info(f"DEBUG: Real meeting link: {meeting_data['meeting_link']}")
+
+                            except ZoomMeetingCreationError as e:
+                                # Log error but don't fail the appointment creation
+                                logger.error(f"Failed to create Zoom meeting for appointment {appointment.appointment_id}: {str(e)}")
+
+                                # Fall back to placeholder
+                                meeting_id = f"meeting_{appointment.appointment_id.hex[:10]}"
+                                meeting_link = f"https://zoom.us/j/{meeting_id}"
+                                appointment.meeting_id = meeting_id
+                                appointment.meeting_link = meeting_link
+
+                                # Set flag to retry later
+                                appointment.metadata = appointment.metadata or {}
+                                appointment.metadata['zoom_error'] = {
+                                    'error': str(e),
+                                    'timestamp': timezone.now().isoformat(),
+                                    'retry_needed': True
+                                }
+
+                                appointment.save(update_fields=['meeting_id', 'meeting_link', 'metadata', 'updated_at'])
+
+                                logger.warning(f"DEBUG: Created placeholder meeting for appointment {appointment.appointment_id} due to Zoom error")
+                        else:
+                            # Zoom not enabled, use placeholder
+                            logger.warning(f"DEBUG: Zoom not enabled, creating placeholder meeting")
+                            meeting_id = f"meeting_{appointment.appointment_id.hex[:10]}"
+                            meeting_link = f"https://zoom.us/j/{meeting_id}"
+                            appointment.meeting_id = meeting_id
+                            appointment.meeting_link = meeting_link
+                            appointment.save(update_fields=['meeting_id', 'meeting_link', 'updated_at'])
+
+                            logger.info(f"DEBUG: Placeholder meeting details set - ID: {meeting_id}, Link: {meeting_link}")
+
+                    elif session_type == 'InitialConsultation':
+                        logger.info(f"DEBUG: Initial consultation - no online meeting needed")
 
                     # Update order with appointment reference
                     order.metadata['appointment_id'] = str(appointment.appointment_id)
