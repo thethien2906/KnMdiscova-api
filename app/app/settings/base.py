@@ -343,3 +343,56 @@ if not FACEBOOK_APP_ID or not FACEBOOK_APP_SECRET:
             "Facebook OAuth credentials not configured. Facebook authentication will be disabled.",
             UserWarning
         )
+
+
+# =============================================================================
+# ZOOM INTEGRATION CONFIGURATION
+# =============================================================================
+
+ZOOM_CONFIG = {
+    'ENABLED': os.environ.get('ZOOM_ENABLED', 'False') == 'True',
+    'ACCOUNT_ID': os.environ.get('ZOOM_ACCOUNT_ID', ''),
+    'CLIENT_ID': os.environ.get('ZOOM_CLIENT_ID', ''),
+    'CLIENT_SECRET': os.environ.get('ZOOM_CLIENT_SECRET', ''),
+    'OAUTH_TOKEN_URL': 'https://zoom.us/oauth/token',
+    'API_BASE_URL': 'https://api.zoom.us/v2',
+
+    # Meeting defaults
+    'MEETING_DEFAULTS': {
+        'TIMEZONE': 'UTC',
+        'DURATION_MINUTES': 60,  # Default for online sessions
+        'ENABLE_WAITING_ROOM': True,
+        'ENABLE_JOIN_BEFORE_HOST': False,
+        'JOIN_BEFORE_HOST_MINUTES': 5,
+        'AUTO_RECORDING': 'none',  # Options: 'none', 'local', 'cloud'
+        'MUTE_UPON_ENTRY': False,
+        'ENABLE_BREAKOUT_ROOMS': False,
+        'REGISTRATION_REQUIRED': False,
+    },
+
+    # Security settings
+    'SECURITY': {
+        'REQUIRE_MEETING_PASSWORD': True,
+        'ENFORCE_LOGIN': False,
+        'ENFORCE_LOGIN_DOMAINS': '',
+        'ALTERNATIVE_HOSTS': '',  # Comma-separated email list
+    },
+
+    # Webhook configuration (optional for future use)
+    # 'WEBHOOK': {
+    #     'ENABLED': os.environ.get('ZOOM_WEBHOOK_ENABLED', 'False') == 'True',
+    #     'SECRET_TOKEN': os.environ.get('ZOOM_WEBHOOK_SECRET', ''),
+    #     'EVENTS': [
+    #         'meeting.started',
+    #         'meeting.ended',
+    #         'meeting.participant_joined',
+    #         'meeting.participant_left',
+    #     ],
+    # },
+
+    # Rate limiting
+    'RATE_LIMITS': {
+        'DAILY_MEETING_CREATE': 100,
+        'REQUESTS_PER_SECOND': 10,
+    }
+}

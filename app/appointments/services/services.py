@@ -9,8 +9,8 @@ from datetime import date, datetime, timedelta, time
 import logging
 from typing import Optional, Dict, Any, List, Tuple
 import uuid
-from .reservation_service import SlotReservationService, SlotReservationError
-
+from .reservation_service import *
+from .zoom_service import *
 from ..models import Appointment, AppointmentSlot
 from psychologists.models import Psychologist, PsychologistAvailability
 from parents.models import Parent
@@ -560,21 +560,87 @@ class AppointmentBookingService:
     @staticmethod
     def _setup_online_meeting(appointment: Appointment):
         """
-        Setup online meeting details
+        Setup online meeting details using Zoom integration
         """
-        # TODO: ZOOM_INTEGRATION_PLACEHOLDER
-        # Future implementation:
-        # 1. Create Zoom meeting via API
-        # 2. Store meeting_id and meeting_link
-        # 3. Configure meeting settings (waiting room, etc.)
+        zoom_service = ZoomService()
 
-        # For now, generate placeholder meeting details
+        # Check if Zoom is enabled
+        if zoom_service.is_enabled():
+            try:
+                # Create actual Zoom meeting
+                meeting_data = zoom_service.create_meeting_for_appointment(appointment)
+
+                # Update appointment with real meeting details
+                appointment.meeting_id = meeting_data['meeting_id']
+                appointment.meeting_link = meeting_data['meeting_link']
+
+                # Store additional meeting data in metadata if needed
+                appointment.metadata = appointment.metadata or {}
+                appointment.metadata['zoom_meeting'] = {
+                    'password': meeting_data['meeting_password'],
+                    'host_start_url': meeting_data.get('host_start_url'),
+                    'created_at': timezone.now().isoformat(),
+                }
+
+                appointment.save(update_fields=['meeting_id', 'meeting_link', 'metadata', 'updated_at'])
+
+                logger.info(f"Created Zoom meeting {meeting_data['meeting_id']} for appointment {appointment.appointment_id}")
+
+            except ZoomMeetingCreationError as e:
+                # Log error but don't fail the appointment creation
+                logger.error(f"Failed to create Zoom meeting for appointment {appointment.appointment_id}: {str(e)}")
+
+                # Fall back to placeholder
+                AppointmentBookingService._create_placeholder_meeting(appointment)
+
+                # Optionally, you might want to set a flag to retry later
+                appointment.metadata = appointment.metadata or {}
+                appointment.metadata['zoom_error'] = {
+                    'error': str(e),
+                    'timestamp': timezone.now().isoformat(),
+                    'retry_needed': True
+                }
+                appointment.save(update_fields=['metadata', 'updated_at'])
+        else:
+            # Zoom not enabled, use placeholder
+            AppointmentBookingService._create_placeholder_meeting(appointment)
+
+
+    @staticmethod
+    def _create_placeholder_meeting(appointment: Appointment):
+        """
+        Create placeholder meeting details when Zoom is not available
+        """
         meeting_id = f"meeting_{appointment.appointment_id.hex[:10]}"
         meeting_link = f"https://zoom.us/j/{meeting_id}"  # Placeholder
 
         appointment.meeting_id = meeting_id
         appointment.meeting_link = meeting_link
         appointment.save(update_fields=['meeting_id', 'meeting_link', 'updated_at'])
+
+        logger.warning(f"Created placeholder meeting for appointment {appointment.appointment_id}")
+
+
+    @staticmethod
+    def cancel_zoom_meeting(appointment: Appointment):
+        """
+        Cancel associated Zoom meeting when appointment is cancelled
+        """
+        if appointment.session_type != 'OnlineMeeting' or not appointment.meeting_id:
+            return
+
+        # Skip if it's a placeholder meeting
+        if appointment.meeting_id.startswith('meeting_'):
+            return
+
+        zoom_service = ZoomService()
+        if zoom_service.is_enabled():
+            try:
+                zoom_service.delete_meeting(appointment.meeting_id)
+                logger.info(f"Deleted Zoom meeting {appointment.meeting_id} for cancelled appointment {appointment.appointment_id}")
+            except Exception as e:
+                # Log error but don't fail the cancellation
+                logger.error(f"Failed to delete Zoom meeting {appointment.meeting_id}: {str(e)}")
 
     @staticmethod
     def _setup_in_person_meeting(appointment: Appointment):
@@ -595,21 +661,6 @@ class AppointmentBookingService:
         appointment.save(update_fields=['appointment_status', 'payment_status', 'updated_at'])
         return appointment
 
-    # TODO: PAYMENT_INTEGRATION_PLACEHOLDER
-    @staticmethod
-    def process_payment_and_schedule(appointment: Appointment, payment_token: str) -> Appointment:
-        """
-        Process payment and mark appointment as scheduled
-
-        PLACEHOLDER for future payment integration:
-        1. Validate payment token
-        2. Process payment via payment gateway
-        3. Handle payment success/failure
-        4. Update appointment status accordingly
-        5. Send confirmation emails
-        """
-        # Future implementation will go here
-        pass
 
     @staticmethod
     def get_available_booking_slots(psychologist: Psychologist, session_type: str,
@@ -750,6 +801,8 @@ class AppointmentManagementService:
                 # TODO: EMAIL_NOTIFICATION_PLACEHOLDER
                 # AppointmentNotificationService.send_cancellation_notification(appointment, cancelled_by_user)
 
+                if appointment.session_type == 'OnlineMeeting':
+                    AppointmentBookingService.cancel_zoom_meeting(appointment)
                 logger.info(f"Appointment {appointment.appointment_id} cancelled by {cancelled_by_user.email}")
                 return appointment
 
