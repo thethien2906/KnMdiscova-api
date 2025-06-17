@@ -539,6 +539,13 @@ class Appointment(models.Model):
         _('updated at'),
         auto_now=True
     )
+    metadata = models.JSONField(
+        _('metadata'),
+        default=dict,
+        blank=True,
+        null=True,
+        help_text=_("Additional metadata for the appointment (e.g., Zoom details)")
+    )
 
     class Meta:
         verbose_name = _('Appointment')

@@ -342,12 +342,36 @@ class AppointmentDetailSerializer(AppointmentSerializer):
     def get_meeting_info(self, obj):
         """Get meeting information based on session type"""
         if obj.session_type == 'OnlineMeeting':
-            return {
+            meeting_info = {
                 'type': 'online',
                 'meeting_link': obj.meeting_link,
                 'meeting_id': obj.meeting_id,
                 'instructions': _("Join the video call at the scheduled time using the meeting link provided.")
             }
+
+            # Include meeting password for authorized users
+            request = self.context.get('request')
+            if request and request.user.is_authenticated:
+                # Check if user is participant (parent or psychologist) or admin
+                is_participant = False
+
+                if hasattr(request.user, 'parent_profile'):
+                    is_participant = obj.parent == request.user.parent_profile
+                elif hasattr(request.user, 'psychologist_profile'):
+                    is_participant = obj.psychologist == request.user.psychologist_profile
+                elif request.user.is_staff or request.user.is_admin:
+                    is_participant = True
+
+                if is_participant and obj.metadata and 'zoom_meeting' in obj.metadata:
+                    zoom_data = obj.metadata['zoom_meeting']
+                    meeting_info['meeting_password'] = zoom_data.get('password')
+
+                    # Include host URL only for psychologist
+                    if hasattr(request.user, 'psychologist_profile') and obj.psychologist == request.user.psychologist_profile:
+                        meeting_info['host_start_url'] = zoom_data.get('host_start_url')
+
+            return meeting_info
+
         else:  # InitialConsultation
             return {
                 'type': 'in_person',
