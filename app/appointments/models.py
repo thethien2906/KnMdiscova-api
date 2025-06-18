@@ -668,13 +668,32 @@ class Appointment(models.Model):
     @property
     def can_be_verified(self):
         """Check if appointment can be verified via QR code"""
-        return (
+        basic_checks = (
             self.session_type == 'InitialConsultation' and
             self.appointment_status == 'Scheduled' and
             not self.session_verified_at and
             # Allow verification 30 minutes before to 30 minutes after scheduled start
             abs((timezone.now() - self.scheduled_start_time).total_seconds()) <= 1800
         )
+
+        if not basic_checks:
+            return False
+
+        # Check if psychologist location is captured (for GPS verification)
+        location_verification = getattr(self, 'location_verification', None)
+        if location_verification and location_verification.has_psychologist_location:
+            return True
+
+        # If no location verification exists, allow standard verification
+        return not hasattr(self, 'location_verification')
+
+    def get_or_create_location_verification(self):
+        """Get or create location verification record"""
+        from .models import LocationVerification
+        location_verification, created = LocationVerification.objects.get_or_create(
+            appointment=self
+        )
+        return location_verification
 
     def mark_as_scheduled(self):
         """Mark appointment as scheduled (after payment)"""
@@ -834,3 +853,118 @@ class Appointment(models.Model):
             self.actual_end_time = timezone.now()
 
         self.save(update_fields=['appointment_status', 'psychologist_notes', 'actual_end_time', 'updated_at'])
+
+class LocationVerification(models.Model):
+    """
+    Model to store GPS coordinates for QR code verification
+    """
+    # Primary key
+    verification_id = models.UUIDField(
+        primary_key=True,
+        default=uuid.uuid4,
+        editable=False
+    )
+
+    # Link to appointment
+    appointment = models.OneToOneField(
+        'Appointment',
+        on_delete=models.CASCADE,
+        related_name='location_verification',
+        help_text=_("Associated appointment for location verification")
+    )
+
+    # Psychologist location (captured when QR is opened)
+    psychologist_latitude = models.DecimalField(
+        _('psychologist latitude'),
+        max_digits=10,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Psychologist's latitude when QR code was opened")
+    )
+    psychologist_longitude = models.DecimalField(
+        _('psychologist longitude'),
+        max_digits=11,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Psychologist's longitude when QR code was opened")
+    )
+    psychologist_location_captured_at = models.DateTimeField(
+        _('psychologist location captured at'),
+        null=True,
+        blank=True,
+        help_text=_("When psychologist's location was captured")
+    )
+
+    # Parent location (captured when QR is scanned)
+    parent_latitude = models.DecimalField(
+        _('parent latitude'),
+        max_digits=10,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Parent's latitude when QR code was scanned")
+    )
+    parent_longitude = models.DecimalField(
+        _('parent longitude'),
+        max_digits=11,
+        decimal_places=8,
+        null=True,
+        blank=True,
+        help_text=_("Parent's longitude when QR code was scanned")
+    )
+    parent_location_captured_at = models.DateTimeField(
+        _('parent location captured at'),
+        null=True,
+        blank=True,
+        help_text=_("When parent's location was captured")
+    )
+
+    # Verification results
+    distance_meters = models.DecimalField(
+        _('distance in meters'),
+        max_digits=8,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        help_text=_("Calculated distance between locations in meters")
+    )
+    proximity_verified = models.BooleanField(
+        _('proximity verified'),
+        default=False,
+        help_text=_("Whether both parties are within acceptable proximity")
+    )
+
+    # Timestamps
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _('Location Verification')
+        verbose_name_plural = _('Location Verifications')
+        db_table = 'appointment_location_verifications'
+
+    def __str__(self):
+        return f"Location verification for {self.appointment.appointment_id}"
+
+    @property
+    def has_psychologist_location(self):
+        """Check if psychologist location is captured"""
+        return (
+            self.psychologist_latitude is not None and
+            self.psychologist_longitude is not None
+        )
+
+    @property
+    def has_parent_location(self):
+        """Check if parent location is captured"""
+        return (
+            self.parent_latitude is not None and
+            self.parent_longitude is not None
+        )
+
+    @property
+    def both_locations_captured(self):
+        """Check if both locations are captured"""
+        return self.has_psychologist_location and self.has_parent_location
