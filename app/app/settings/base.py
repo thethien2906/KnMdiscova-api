@@ -396,3 +396,16 @@ ZOOM_CONFIG = {
         'REQUESTS_PER_SECOND': 10,
     }
 }
+
+
+
+# =============================================================================
+# Face Verification Configuration
+# =============================================================================
+
+# Face Recognition Settings
+FACE_RECOGNITION = {
+    'TOLERANCE': 0.6,  # Matching tolerance (0.6 is default)
+    'VERIFICATION_WINDOW_BEFORE': 15,  # Minutes before appointment
+    'VERIFICATION_WINDOW_AFTER': 30,   # Minutes after appointment
+}
