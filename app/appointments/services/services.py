@@ -11,6 +11,7 @@ from typing import Optional, Dict, Any, List, Tuple
 import uuid
 from .reservation_service import *
 from .zoom_service import *
+from .face_verification_service import *
 from ..models import Appointment, AppointmentSlot
 from psychologists.models import Psychologist, PsychologistAvailability
 from parents.models import Parent

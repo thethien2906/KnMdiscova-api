@@ -293,9 +293,14 @@ CELERY_WORKER_MAX_TASKS_PER_CHILD = 1000
 
 # Celery task routing for appointment slots (if using custom routing)
 CELERY_TASK_ROUTES = {
+    # Slot auto-generation tasks
     'appointments.tasks.auto_generate_slots_task': {'queue': 'slots'},
     'appointments.tasks.auto_regenerate_slots_task': {'queue': 'slots'},
     # 'appointments.tasks.auto_cleanup_slots_task': {'queue': 'slots'},
+
+    # Face verification tasks
+    'appointments.tasks.generate_face_embedding_task': {'queue': 'face_verification'},
+    'appointments.tasks.bulk_generate_face_embeddings_task': {'queue': 'face_verification'},
 }
 # Celery scheduler
 CELERY_BEAT_SCHEDULE = {
@@ -303,6 +308,12 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'appointments.tasks.auto_cleanup_past_slots_task',
         'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
         'options': {'expires': 3600},  # Task expires in 1 hour if not executed
+    },
+    'bulk-generate-face-embeddings': {
+        'task': 'appointments.tasks.bulk_generate_face_embeddings_task',
+        'schedule': crontab(hour=3, minute=0),  # Daily at 3 AM
+        'kwargs': {'batch_size': 50},
+        'options': {'expires': 3600},
     },
 }
 
@@ -409,3 +420,4 @@ FACE_RECOGNITION = {
     'VERIFICATION_WINDOW_BEFORE': 15,  # Minutes before appointment
     'VERIFICATION_WINDOW_AFTER': 30,   # Minutes after appointment
 }
+

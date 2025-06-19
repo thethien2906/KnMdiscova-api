@@ -14,7 +14,7 @@ from django.db import transaction
 from PIL import Image
 import io
 import base64
-
+from django.utils import timezone
 from appointments.models import Appointment
 from parents.models import Parent
 from psychologists.models import Psychologist
@@ -172,7 +172,7 @@ class FaceVerificationService:
                 raise FaceVerificationError("Appointment does not belong to this psychologist")
 
             # Check if within verification time window
-            now = datetime.now(appointment.scheduled_start_time.tzinfo)
+            now = timezone.now()
             scheduled_time = appointment.scheduled_start_time
 
             time_before = scheduled_time - timedelta(minutes=cls.VERIFICATION_WINDOW_BEFORE_MINUTES)
@@ -180,7 +180,7 @@ class FaceVerificationService:
 
             if now < time_before or now > time_after:
                 raise VerificationWindowExpiredError(
-                    f"Verification allowed between {time_before.strftime('%H:%M')} "
+                    f"Verification time window expired. Verification allowed between {time_before.strftime('%H:%M')} "
                     f"and {time_after.strftime('%H:%M')}"
                 )
 
@@ -263,7 +263,7 @@ class FaceVerificationService:
 
             if face_embedding:
                 parent.face_embedding = face_embedding
-                parent.face_embedding_created_at = datetime.now()
+                parent.face_embedding_created_at = timezone.now()
                 parent.save(update_fields=[
                     'face_embedding',
                     'face_embedding_created_at',
