@@ -92,7 +92,17 @@ class Parent(models.Model):
         null=False,  # Explicitly set to ensure it's never null
         help_text=_("Notification and communication preferences")
     )
+    face_embedding = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Facial recognition embedding for session verification"
+    )
 
+    face_embedding_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the face embedding was last generated"
+    )
     # Timestamps
     created_at = models.DateTimeField(
         _('created at'),
