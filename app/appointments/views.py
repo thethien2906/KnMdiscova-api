@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 import logging
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.http import Http404
 from rest_framework.exceptions import PermissionDenied
 from datetime import date, timedelta
@@ -30,7 +31,10 @@ from .serializers import (
     AppointmentSlotCreateSerializer,
     AppointmentSlotSerializer,
     NoShowSerializer,
-    StartOnlineSessionSerializer
+    StartOnlineSessionSerializer,
+    FaceVerificationSerializer,
+    FaceVerificationResponseSerializer,
+    AlternativeFaceVerificationSerializer
 )
 from .services import (
     AppointmentBookingService,
@@ -44,7 +48,14 @@ from .services import (
     SlotNotAvailableError,
     InsufficientConsecutiveSlotsError,
     AppointmentSlotService,
-    SlotGenerationError
+    SlotGenerationError,
+    FaceVerificationService,
+    FaceVerificationError,
+    NoFaceDetectedError,
+    MultipleFacesDetectedError,
+    ProfilePictureMissingError,
+    FaceNotMatchedError,
+    VerificationWindowExpiredError
 
 )
 from .permissions import (
@@ -59,7 +70,8 @@ from .permissions import (
     IsParentAppointmentBooker,
     CanCompleteAppointment,
     AppointmentSlotPermissions,
-    CanManageSlots
+    CanManageSlots,
+    CanVerifyAppointmentSession
 )
 from psychologists.models import Psychologist
 from parents.services import ParentService, ParentNotFoundError
@@ -1009,7 +1021,171 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
                 'error': _('Failed to start online session')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @extend_schema(
+        request=FaceVerificationSerializer,
+        responses={
+            200: FaceVerificationResponseSerializer,
+            400: {
+                'description': 'Bad request - validation error or face not detected',
+                'example': {
+                    'error': 'No face detected in image.'
+                }
+            },
+            403: {
+                'description': 'Forbidden - not authorized for this appointment',
+                'example': {
+                    'error': 'You can only verify your own appointments.'
+                }
+            },
+            404: {
+                'description': 'Appointment not found',
+                'example': {
+                    'error': 'Appointment not found.'
+                }
+            },
+            408: {
+                'description': 'Request timeout - verification window expired',
+                'example': {
+                    'error': 'Verification time window expired.'
+                }
+            },
+            428: {
+                'description': 'Precondition required - parent profile picture missing',
+                'example': {
+                    'error': 'Parent profile picture missing.'
+                }
+            }
+        },
+        description="Verify parent's identity via face scan for Initial Consultation sessions",
+        operation_id="verifyAppointmentFace",
+        tags=['Appointments']
+    )
+    @action(
+        detail=True,
+        methods=['post'],
+        permission_classes=[CanVerifyAppointmentSession],
+        parser_classes=[MultiPartParser, FormParser],
+        url_path='verify-face'
+    )
+    def verify_face(self, request, pk=None):
+        """
+        Verify parent's identity via face scan.
 
+        POST /api/v1/appointments/{appointment_id}/verify-face/
+
+        Accepts multipart/form-data with an image file.
+        """
+        # Get appointment
+        appointment = self.get_object()
+
+        # Validate input
+        serializer = FaceVerificationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                serializer.errors,
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Get psychologist from request user
+        try:
+            psychologist = PsychologistService.get_psychologist_by_user_or_raise(
+                request.user
+            )
+        except Exception as e:
+            logger.error(f"Failed to get psychologist profile: {str(e)}")
+            return Response(
+                {'error': _('Psychologist profile not found.')},
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        # Get image data
+        image_file = serializer.validated_data['image']
+        image_data = image_file.read()
+
+        try:
+            # Perform face verification
+            result = FaceVerificationService.verify_appointment_parent(
+                appointment=appointment,
+                live_image_data=image_data,
+                psychologist=psychologist
+            )
+
+            # Return success response
+            response_serializer = FaceVerificationResponseSerializer(data=result)
+            response_serializer.is_valid()
+
+            return Response(
+                response_serializer.data,
+                status=status.HTTP_200_OK
+            )
+
+        except NoFaceDetectedError as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': str(e),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except MultipleFacesDetectedError as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': str(e),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except ProfilePictureMissingError as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': str(e),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_428_PRECONDITION_REQUIRED
+            )
+
+        except VerificationWindowExpiredError as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': str(e),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_408_REQUEST_TIMEOUT
+            )
+
+        except FaceNotMatchedError as e:
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': _('Face not recognized.'),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_200_OK  # Still 200 as per spec
+            )
+
+        except FaceVerificationError as e:
+            logger.error(f"Face verification error: {str(e)}")
+            return Response(
+                {
+                    'status': 'failure',
+                    'message': _('Verification failed. Please try again.'),
+                    'appointment_status': appointment.appointment_status
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as e:
+            logger.error(f"Unexpected error in face verification: {str(e)}")
+            return Response(
+                {'error': _('An unexpected error occurred.')},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
 
 class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """
