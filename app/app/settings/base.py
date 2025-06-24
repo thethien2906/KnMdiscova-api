@@ -46,6 +46,7 @@ INSTALLED_APPS = [
     'psychologists',
     'appointments',
     'payments',
+    'carts',
     # Celery
     'django_celery_beat',
 ]

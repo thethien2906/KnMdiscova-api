@@ -507,7 +507,47 @@ class OrderService:
         except Exception as e:
             logger.error(f"Failed to expire order {order.order_id}: {str(e)}")
             return False
+    @staticmethod
+    def create_order_from_cart_item(cart_item_data: Dict[str, Any], currency: str = 'USD', provider_name: str = 'stripe') -> Order:
+        """
+        Create order from cart item data (used by cart checkout)
+        Leverages the existing create_appointment_booking_order_with_reservation method
 
+        Args:
+            cart_item_data: Dictionary containing cart item information
+            currency: Payment currency
+            provider_name: Payment provider
+
+        Returns:
+            Created Order instance
+
+        Raises:
+            OrderCreationError: If order creation fails
+        """
+        try:
+            # Extract data from cart item
+            user = cart_item_data['user']
+            child = cart_item_data['child']
+            psychologist = cart_item_data['psychologist']
+            session_type = cart_item_data['session_type']
+            start_slot_id = cart_item_data['start_slot_id']
+            parent_notes = cart_item_data.get('parent_notes', '')
+
+            # Use the existing method that handles slot reservation
+            return OrderService.create_appointment_booking_order_with_reservation(
+                user=user,
+                child=child,
+                psychologist=psychologist,
+                session_type=session_type,
+                start_slot_id=start_slot_id,
+                parent_notes=parent_notes,
+                currency=currency,
+                provider_name=provider_name
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to create order from cart item: {str(e)}")
+            raise OrderCreationError(f"Failed to create order from cart item: {str(e)}")
 
 class PaymentService:
     """
