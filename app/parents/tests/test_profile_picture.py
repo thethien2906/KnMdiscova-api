@@ -129,3 +129,40 @@ class ParentProfileImageUploadFlow(TestCase):
         self.assertEqual(self.parent_user.profile_picture_url, '')
         self.assertIsNone(self.parent.face_embedding)
         self.assertIsNone(self.parent.face_embedding_created_at)
+
+    # --- CORRECTED CELERY TASK TESTING ADDED BELOW ---
+
+    @patch('appointments.tasks.generate_face_embedding_task.delay')
+    def test_user_save_with_new_picture_triggers_celery_task(self, mock_task_delay):
+        """
+        Test that saving the User model with a new profile picture URL triggers the Celery task.
+        """
+        # Arrange
+        self.assertIsNone(self.parent_user.profile_picture_url)
+
+        # Act
+        self.parent_user.profile_picture_url = self.valid_image_url
+        self.parent_user.save()
+
+        # Assert
+        # The task, defined in appointments.tasks, should be called by the signal.
+        mock_task_delay.assert_called_once_with(str(self.parent_user.id))
+
+    @patch('appointments.tasks.generate_face_embedding_task.delay')
+    def test_user_save_without_picture_change_does_not_trigger_celery_task(self, mock_task_delay):
+        """
+        Test that re-saving the User model without changing the picture URL does not trigger the task.
+        """
+        # Arrange
+        self.parent_user.profile_picture_url = self.valid_image_url
+        self.parent_user.save()
+        mock_task_delay.reset_mock() # Reset mock after initial save
+
+        # Act
+        # Re-save the user without changing the profile picture URL
+        self.parent_user.is_active = False
+        self.parent_user.save()
+
+        # Assert
+        # The task should not have been called again.
+        mock_task_delay.assert_not_called()
