@@ -3,12 +3,20 @@ from celery import shared_task
 from django.utils import timezone
 import logging
 from django.core.files.storage import default_storage
-from .services import AppointmentSlotService, FaceVerificationService
 from psychologists.models import PsychologistAvailability
 from parents.models import Parent
 from users.models import User
 import requests
+from django.db import transaction
 
+from .services import (
+    AppointmentSlotService,
+    FaceVerificationService,
+    FaceVerificationError,
+    NoFaceDetectedError,
+    MultipleFacesDetectedError,
+    ImageProcessingError
+)
 logger = logging.getLogger(__name__)
 
 
@@ -94,134 +102,291 @@ def auto_cleanup_past_slots_task(self, days_past=7):
         raise self.retry(exc=e)
 
 
+
+
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def generate_face_embedding_task(self, user_id: str):
     """
-    Celery task to generate face embedding for a parent user
-    when their profile picture is updated.
+    Celery task to generate face embedding for a parent's profile picture
 
     Args:
         user_id: UUID string of the user
+
+    Returns:
+        Dict with task result information
     """
     try:
-        # Get user and parent profile
+        # Get user and validate they're a parent
         user = User.objects.get(id=user_id)
 
         if user.user_type != 'Parent':
-            logger.info(f"User {user_id} is not a parent, skipping face embedding generation")
+            logger.warning(f"Attempted to generate face embedding for non-parent user: {user.email}")
             return {
                 'success': False,
-                'reason': 'User is not a parent'
+                'error': 'User is not a parent',
+                'user_id': user_id
             }
 
         if not user.profile_picture_url:
-            logger.warning(f"User {user_id} has no profile picture")
+            logger.warning(f"No profile picture URL for user: {user.email}")
             return {
                 'success': False,
-                'reason': 'No profile picture'
+                'error': 'No profile picture URL',
+                'user_id': user_id
             }
 
         # Get parent profile
         try:
-            parent = user.parent_profile
+            parent = Parent.objects.get(user=user)
         except Parent.DoesNotExist:
-            logger.error(f"Parent profile not found for user {user_id}")
+            logger.error(f"Parent profile not found for user: {user.email}")
             return {
                 'success': False,
-                'reason': 'Parent profile not found'
+                'error': 'Parent profile not found',
+                'user_id': user_id
             }
 
-        # Download image data
-        image_data = None
+        logger.info(f"Starting face embedding generation for user: {user.email}")
 
-        if user.profile_picture_url.startswith('http'):
-            # Remote URL (e.g., S3, CDN)
-            logger.info(f"Downloading profile picture from URL: {user.profile_picture_url}")
-            response = requests.get(user.profile_picture_url, timeout=30)
+        # Validate profile picture
+        validation_result = FaceVerificationService.validate_profile_picture_for_embedding(
+            user.profile_picture_url
+        )
 
-            if response.status_code == 200:
-                image_data = response.content
-            else:
-                logger.error(f"Failed to download image: HTTP {response.status_code}")
-                raise Exception(f"Failed to download image: HTTP {response.status_code}")
-        else:
-            # Local file storage
-            logger.info(f"Reading profile picture from local storage: {user.profile_picture_url}")
-            with default_storage.open(user.profile_picture_url, 'rb') as f:
-                image_data = f.read()
-
-        if not image_data:
-            raise Exception("No image data retrieved")
+        if not validation_result['valid']:
+            logger.warning(
+                f"Profile picture validation failed for user {user.email}: "
+                f"{validation_result['error']}"
+            )
+            return {
+                'success': False,
+                'error': validation_result['error'],
+                'error_code': validation_result.get('error_code'),
+                'user_id': user_id
+            }
 
         # Generate face embedding
-        logger.info(f"Generating face embedding for parent {user.email}")
-        FaceVerificationService.update_parent_face_embedding(parent, image_data)
+        try:
+            embedding_data = FaceVerificationService.generate_face_embedding_from_url(
+                user.profile_picture_url
+            )
 
-        logger.info(f"Successfully generated face embedding for user {user_id}")
-        return {
-            'success': True,
-            'user_id': user_id,
-            'parent_id': str(parent.user_id),
-            'embedding_created': True
-        }
+            if embedding_data:
+                # Save embedding to parent with atomic transaction
+                with transaction.atomic():
+                    parent.face_embedding = embedding_data
+                    parent.face_embedding_created_at = timezone.now()
+                    parent.save(update_fields=['face_embedding', 'face_embedding_created_at', 'updated_at'])
+
+                logger.info(f"Face embedding successfully generated and saved for user: {user.email}")
+
+                return {
+                    'success': True,
+                    'message': 'Face embedding generated successfully',
+                    'user_id': user_id,
+                    'embedding_created_at': parent.face_embedding_created_at.isoformat(),
+                    'profile_picture_url': user.profile_picture_url
+                }
+            else:
+                logger.error(f"Face embedding generation returned None for user: {user.email}")
+                return {
+                    'success': False,
+                    'error': 'Failed to generate face embedding',
+                    'user_id': user_id
+                }
+
+        except NoFaceDetectedError:
+            error_msg = "No face detected in profile picture"
+            logger.warning(f"{error_msg} for user: {user.email}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'error_code': 'NO_FACE_DETECTED',
+                'user_id': user_id
+            }
+
+        except MultipleFacesDetectedError:
+            error_msg = "Multiple faces detected in profile picture"
+            logger.warning(f"{error_msg} for user: {user.email}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'error_code': 'MULTIPLE_FACES',
+                'user_id': user_id
+            }
+
+        except ImageProcessingError as e:
+            error_msg = f"Image processing error: {str(e)}"
+            logger.warning(f"{error_msg} for user: {user.email}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'error_code': 'IMAGE_PROCESSING_ERROR',
+                'user_id': user_id
+            }
+
+        except FaceVerificationError as e:
+            error_msg = f"Face verification error: {str(e)}"
+            logger.error(f"{error_msg} for user: {user.email}")
+            return {
+                'success': False,
+                'error': error_msg,
+                'error_code': 'FACE_VERIFICATION_ERROR',
+                'user_id': user_id
+            }
 
     except User.DoesNotExist:
-        logger.error(f"User {user_id} not found")
+        logger.error(f"User not found for face embedding generation: {user_id}")
         return {
             'success': False,
-            'reason': 'User not found'
+            'error': 'User not found',
+            'user_id': user_id
         }
+
     except Exception as e:
-        logger.error(f"Failed to generate face embedding for user {user_id}: {str(e)}")
-        # Retry the task
-        raise self.retry(exc=e)
+        logger.error(f"Unexpected error in face embedding task for user {user_id}: {str(e)}")
+
+        # Retry the task for unexpected errors
+        if self.request.retries < self.max_retries:
+            logger.info(f"Retrying face embedding task for user {user_id} (attempt {self.request.retries + 1})")
+            raise self.retry(exc=e)
+
+        return {
+            'success': False,
+            'error': f'Task failed after {self.max_retries} retries: {str(e)}',
+            'user_id': user_id
+        }
 
 
-@shared_task(bind=True, max_retries=2, default_retry_delay=120)
-def bulk_generate_face_embeddings_task(self, batch_size=10):
+@shared_task(bind=True)
+def bulk_generate_face_embeddings_task(self, batch_size: int = 50):
     """
-    Celery task to bulk generate face embeddings for parents
-    who have profile pictures but no embeddings.
+    Bulk generate face embeddings for parents who have profile pictures but no embeddings
+    Useful for migrating existing users or fixing failed generations
 
     Args:
-        batch_size: Number of parents to process in this batch
+        batch_size: Number of users to process in this batch
+
+    Returns:
+        Dict with batch processing results
     """
     try:
         # Find parents with profile pictures but no face embeddings
-        parents_to_process = Parent.objects.filter(
+        parents_needing_embeddings = Parent.objects.filter(
             user__profile_picture_url__isnull=False,
-            face_embedding__isnull=True
+            face_embedding__isnull=True,
+            user__user_type='Parent',
+            user__is_active=True
         ).select_related('user')[:batch_size]
 
+        if not parents_needing_embeddings:
+            logger.info("No parents found needing face embedding generation")
+            return {
+                'success': True,
+                'message': 'No parents need face embedding generation',
+                'processed_count': 0,
+                'batch_size': batch_size
+            }
+
         results = {
-            'success': 0,
-            'failed': 0,
-            'processed': []
+            'success': True,
+            'processed_count': 0,
+            'successful_count': 0,
+            'failed_count': 0,
+            'batch_size': batch_size,
+            'failures': []
         }
 
-        for parent in parents_to_process:
+        logger.info(f"Starting bulk face embedding generation for {len(parents_needing_embeddings)} parents")
+
+        for parent in parents_needing_embeddings:
             try:
-                # Trigger individual task for each parent
-                generate_face_embedding_task.delay(str(parent.user.id))
-                results['success'] += 1
-                results['processed'].append({
-                    'user_id': str(parent.user.id),
-                    'email': parent.user.email,
-                    'status': 'queued'
-                })
+                # Queue individual embedding generation task
+                task_result = generate_face_embedding_task.delay(str(parent.user.id))
+
+                results['processed_count'] += 1
+
+                # For bulk processing, we don't wait for individual results
+                # The individual tasks will handle their own success/failure logging
+
             except Exception as e:
-                logger.error(f"Failed to queue embedding generation for {parent.user.email}: {str(e)}")
-                results['failed'] += 1
-                results['processed'].append({
+                logger.error(f"Failed to queue embedding task for parent {parent.user.email}: {str(e)}")
+                results['failed_count'] += 1
+                results['failures'].append({
                     'user_id': str(parent.user.id),
                     'email': parent.user.email,
-                    'status': 'failed',
                     'error': str(e)
                 })
 
-        logger.info(f"Bulk face embedding generation: {results['success']} queued, {results['failed']} failed")
+        logger.info(
+            f"Bulk face embedding generation queued: {results['processed_count']} tasks queued, "
+            f"{results['failed_count']} failed to queue"
+        )
+
         return results
 
     except Exception as e:
-        logger.error(f"Bulk face embedding generation failed: {str(e)}")
-        raise self.retry(exc=e)
+        logger.error(f"Bulk face embedding generation task failed: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'processed_count': 0,
+            'batch_size': batch_size
+        }
+
+
+@shared_task
+def cleanup_failed_face_embeddings_task():
+    """
+    Cleanup task to identify and retry failed face embedding generations
+    Can be run periodically to ensure all eligible parents have embeddings
+    """
+    try:
+        # Find parents with recent profile picture updates but no embeddings
+        from datetime import timedelta
+
+        cutoff_time = timezone.now() - timedelta(hours=24)  # Look at last 24 hours
+
+        failed_parents = Parent.objects.filter(
+            user__profile_picture_url__isnull=False,
+            face_embedding__isnull=True,
+            user__user_type='Parent',
+            user__is_active=True,
+            user__updated_at__gte=cutoff_time  # Recently updated profile
+        ).select_related('user')
+
+        if not failed_parents:
+            logger.info("No failed face embedding generations found to retry")
+            return {
+                'success': True,
+                'message': 'No failed generations to retry',
+                'retry_count': 0
+            }
+
+        retry_count = 0
+        for parent in failed_parents:
+            try:
+                # Retry embedding generation
+                generate_face_embedding_task.delay(str(parent.user.id))
+                retry_count += 1
+
+            except Exception as e:
+                logger.error(f"Failed to retry embedding for parent {parent.user.email}: {str(e)}")
+
+        logger.info(f"Cleanup task queued {retry_count} face embedding retries")
+
+        return {
+            'success': True,
+            'message': f'Queued {retry_count} embedding retries',
+            'retry_count': retry_count
+        }
+
+    except Exception as e:
+        logger.error(f"Cleanup failed face embeddings task failed: {str(e)}")
+        return {
+            'success': False,
+            'error': str(e),
+            'retry_count': 0
+        }

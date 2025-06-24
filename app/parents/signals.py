@@ -9,6 +9,8 @@ import requests
 from users.models import User
 from .models import Parent
 from django.conf import settings
+from django.utils import timezone
+
 logger = logging.getLogger(__name__)
 
 
@@ -30,6 +32,7 @@ def create_parent_profile(sender, instance, created, **kwargs):
         except Exception as e:
             logger.error(f"Failed to create parent profile for user {instance.email}: {str(e)}")
             # Don't raise the exception to avoid breaking user creation
+
 
 _user_profile_picture_cache = {}
 
@@ -79,20 +82,75 @@ def trigger_face_embedding_generation(sender, instance, created, **kwargs):
             del _user_profile_picture_cache[instance.pk]
 
         if profile_picture_changed:
+            try:
+                from appointments.tasks import generate_face_embedding_task
+                logger.info(f"Scheduling face embedding generation for user {instance.email} on transaction commit.")
 
-            # Import here to avoid circular imports
-            from appointments.tasks import generate_face_embedding_task
+                # FIX: This will wait until the user is actually saved in the DB
+                # before sending the message to Celery.
+                transaction.on_commit(
+                    lambda: generate_face_embedding_task.delay(str(instance.id))
+                )
+                # Queue the task
+                result = generate_face_embedding_task.delay(str(instance.id))
 
-            logger.info(f"Triggering face embedding generation for user {instance.email}")
+                logger.info(f"Face embedding task queued with ID: {result.id} for user {instance.email}")
 
-            # Queue the task
-            result = generate_face_embedding_task.delay(str(instance.id))
+            except ImportError:
+                # Celery not available, process synchronously
+                logger.info(f"Celery not available, processing face embedding synchronously for user {instance.email}")
 
-            logger.info(f"Face embedding task queued with ID: {result.id} for user {instance.email}")
+                try:
+                    parent = Parent.objects.get(user=instance)
+                    generate_face_embedding_sync(parent, instance.profile_picture_url)
+                except Parent.DoesNotExist:
+                    logger.error(f"Parent profile not found for user {instance.email}")
+                except Exception as e:
+                    logger.error(f"Synchronous face embedding generation failed for user {instance.email}: {str(e)}")
 
     except Exception as e:
         logger.error(f"Failed to trigger face embedding generation task for user {instance.email}: {str(e)}")
         # Don't raise exception - profile picture update should still succeed
+
+
+def generate_face_embedding_sync(parent: Parent, profile_picture_url: str):
+    """
+    Synchronous face embedding generation for when Celery is not available
+
+    Args:
+        parent: Parent instance
+        profile_picture_url: URL to the profile picture
+    """
+    try:
+        logger.info(f"Starting synchronous face embedding generation for parent {parent.user.email}")
+
+        # Validate profile picture first
+        validation_result = FaceVerificationService.validate_profile_picture_for_embedding(profile_picture_url)
+
+        if not validation_result['valid']:
+            logger.warning(
+                f"Profile picture validation failed for parent {parent.user.email}: "
+                f"{validation_result['error']}"
+            )
+            # Don't raise exception - just log the issue
+            return
+
+        # Generate face embedding
+        embedding_data = FaceVerificationService.generate_face_embedding_from_url(profile_picture_url)
+
+        if embedding_data:
+            # Save embedding to parent
+            parent.face_embedding = embedding_data
+            parent.face_embedding_created_at = timezone.now()
+            parent.save(update_fields=['face_embedding', 'face_embedding_created_at', 'updated_at'])
+
+            logger.info(f"Face embedding generated and saved for parent {parent.user.email}")
+        else:
+            logger.warning(f"Face embedding generation returned None for parent {parent.user.email}")
+
+    except Exception as e:
+        logger.error(f"Synchronous face embedding generation failed for parent {parent.user.email}: {str(e)}")
+        # Don't raise exception - profile update should still succeed
 
 
 # Optional: Add a signal for manual face embedding generation
@@ -108,12 +166,21 @@ def handle_face_embedding_request(sender, user_id, **kwargs):
     Handle manual face embedding generation requests.
     """
     try:
-        from appointments.tasks import generate_face_embedding_task
+        # Try Celery first
+        try:
+            from appointments.tasks import generate_face_embedding_task
 
-        logger.info(f"Manual face embedding generation requested for user {user_id}")
-        result = generate_face_embedding_task.delay(str(user_id))
+            logger.info(f"Manual face embedding generation requested for user {user_id}")
+            result = generate_face_embedding_task.delay(str(user_id))
 
-        return result.id
+            return result.id
+        except ImportError:
+            # Fall back to synchronous processing
+            user = User.objects.get(id=user_id)
+            if user.user_type == 'Parent' and user.profile_picture_url:
+                parent = Parent.objects.get(user=user)
+                generate_face_embedding_sync(parent, user.profile_picture_url)
+                return "sync_completed"
 
     except Exception as e:
         logger.error(f"Failed to queue manual face embedding generation: {str(e)}")

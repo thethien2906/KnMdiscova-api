@@ -298,9 +298,6 @@ CELERY_TASK_ROUTES = {
     'appointments.tasks.auto_regenerate_slots_task': {'queue': 'slots'},
     # 'appointments.tasks.auto_cleanup_slots_task': {'queue': 'slots'},
 
-    # Face verification tasks
-    'appointments.tasks.generate_face_embedding_task': {'queue': 'face_verification'},
-    'appointments.tasks.bulk_generate_face_embeddings_task': {'queue': 'face_verification'},
 }
 # Celery scheduler
 CELERY_BEAT_SCHEDULE = {
@@ -308,12 +305,6 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'appointments.tasks.auto_cleanup_past_slots_task',
         'schedule': crontab(hour=2, minute=0),  # Daily at 2 AM
         'options': {'expires': 3600},  # Task expires in 1 hour if not executed
-    },
-    'bulk-generate-face-embeddings': {
-        'task': 'appointments.tasks.bulk_generate_face_embeddings_task',
-        'schedule': crontab(hour=3, minute=0),  # Daily at 3 AM
-        'kwargs': {'batch_size': 50},
-        'options': {'expires': 3600},
     },
 }
 
@@ -411,13 +402,51 @@ ZOOM_CONFIG = {
 
 
 # =============================================================================
-# Face Verification Configuration
+# FACE RECOGNITION CONFIGURATION
 # =============================================================================
+
+# Enable/disable automatic face embedding generation
+AUTO_GENERATE_FACE_EMBEDDINGS = os.environ.get('AUTO_GENERATE_FACE_EMBEDDINGS', 'True') == 'True'
 
 # Face Recognition Settings
 FACE_RECOGNITION = {
-    'TOLERANCE': 0.6,  # Matching tolerance (0.6 is default)
-    'VERIFICATION_WINDOW_BEFORE': 15,  # Minutes before appointment
-    'VERIFICATION_WINDOW_AFTER': 30,   # Minutes after appointment
+    'TOLERANCE': float(os.environ.get('FACE_RECOGNITION_TOLERANCE', '0.6')),  # Matching tolerance (0.6 is default)
+    'VERIFICATION_WINDOW_BEFORE': int(os.environ.get('FACE_VERIFICATION_WINDOW_BEFORE', '15')),  # Minutes before appointment
+    'VERIFICATION_WINDOW_AFTER': int(os.environ.get('FACE_VERIFICATION_WINDOW_AFTER', '30')),   # Minutes after appointment
+    'BLUR_THRESHOLD': float(os.environ.get('FACE_BLUR_THRESHOLD', '100.0')),  # Blur detection threshold
+    'MAX_IMAGE_SIZE': int(os.environ.get('FACE_MAX_IMAGE_SIZE', str(5 * 1024 * 1024))),  # 5MB default
+    'ALLOWED_FORMATS': ['JPEG', 'PNG', 'JPG'],  # Allowed image formats
 }
 
+# Face verification security settings
+FACE_VERIFICATION_SECURITY = {
+    'ENABLE_CONFIDENCE_LOGGING': os.environ.get('FACE_CONFIDENCE_LOGGING', 'True') == 'True',
+    'MIN_CONFIDENCE_FOR_LOGGING': float(os.environ.get('FACE_MIN_CONFIDENCE_LOG', '0.3')),
+    'ENABLE_FAILED_ATTEMPT_TRACKING': os.environ.get('FACE_TRACK_FAILED_ATTEMPTS', 'True') == 'True',
+    'MAX_FAILED_ATTEMPTS_PER_SESSION': int(os.environ.get('FACE_MAX_FAILED_ATTEMPTS', '3')),
+}
+
+# Image processing settings
+IMAGE_PROCESSING = {
+    'ENABLE_QUALITY_VALIDATION': os.environ.get('IMAGE_QUALITY_VALIDATION', 'True') == 'True',
+    'ENABLE_BLUR_DETECTION': os.environ.get('IMAGE_BLUR_DETECTION', 'True') == 'True',
+    'RESIZE_LARGE_IMAGES': os.environ.get('IMAGE_RESIZE_LARGE', 'True') == 'True',
+    'MAX_RESIZE_DIMENSION': int(os.environ.get('IMAGE_MAX_RESIZE_DIM', '1920')),  # Max width/height for resizing
+}
+
+# Celery task configuration for face recognition
+CELERY_TASK_ROUTES.update({
+    # Face verification tasks
+    'appointments.tasks.generate_face_embedding_task': {'queue': 'face_verification'},
+    'appointments.tasks.bulk_generate_face_embeddings_task': {'queue': 'face_verification'},
+    'appointments.tasks.cleanup_failed_face_embeddings_task': {'queue': 'face_verification'},
+})
+
+# Update Celery beat schedule to include face embedding cleanup
+CELERY_BEAT_SCHEDULE.update({
+    'cleanup-failed-face-embeddings': {
+        'task': 'appointments.tasks.cleanup_failed_face_embeddings_task',
+        'schedule': crontab(hour=4, minute=0),  # Daily at 4 AM
+        'options': {'expires': 3600},  # Task expires in 1 hour if not executed
+    },
+})

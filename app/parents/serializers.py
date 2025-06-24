@@ -257,3 +257,31 @@ class ParentSearchSerializer(serializers.Serializer):
             })
 
         return attrs
+
+
+class FaceVerificationStatusSerializer(serializers.Serializer):
+    """
+    Serializer for parent face verification status
+    """
+    has_embedding = serializers.BooleanField(read_only=True)
+    has_profile_picture = serializers.BooleanField(read_only=True)
+    embedding_created_at = serializers.DateTimeField(read_only=True, allow_null=True)
+    can_verify_sessions = serializers.BooleanField(read_only=True)
+    message = serializers.CharField(read_only=True)
+    action_required = serializers.ChoiceField(
+        choices=[
+            ('NONE', 'No action required'),
+            ('UPLOAD_PICTURE', 'Upload profile picture'),
+            ('WAIT_PROCESSING', 'Wait for processing')
+        ],
+        read_only=True
+    )
+
+class RegenerateFaceEmbeddingSerializer(serializers.Serializer):
+    """
+    Serializer for triggering face embedding regeneration
+    """
+    force_regenerate = serializers.BooleanField(
+        default=False,
+        help_text=_("Force regeneration even if embedding already exists")
+    )

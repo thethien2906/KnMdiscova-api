@@ -111,6 +111,103 @@ class ParentService:
             logger.error(f"Failed to update parent profile for {parent.user.email}: {str(e)}")
             raise ParentProfileError(f"Failed to update profile: {str(e)}")
 
+
+    @staticmethod
+    def update_parent_profile_with_image_validation(parent: Parent, update_data: Dict[str, Any]) -> Parent:
+        """
+        Update parent profile with image validation for profile pictures
+
+        Args:
+            parent: Parent instance
+            update_data: Dictionary of fields to update
+
+        Returns:
+            Updated parent instance
+
+        Raises:
+            ParentProfileError: If validation fails
+        """
+        # Validate that user is actually a parent
+        if not parent.user.is_parent:
+            raise ParentProfileError("User is not a parent")
+
+        # Validate user is active
+        if not parent.user.is_active:
+            raise ParentProfileError("User account is inactive")
+
+        try:
+            with transaction.atomic():
+                # Handle profile picture validation specially
+                if 'profile_picture_url' in update_data:
+                    new_profile_url = update_data.pop('profile_picture_url')
+
+                    if new_profile_url and new_profile_url.strip():
+                        # Import here to avoid circular imports
+                        from appointments.services.face_verification_service import FaceVerificationService
+
+                        logger.info(f"Validating profile picture for parent {parent.user.email}: {new_profile_url}")
+
+                        # Validate the profile picture before saving
+                        validation_result = FaceVerificationService.validate_profile_picture_for_embedding(
+                            new_profile_url
+                        )
+
+                        if not validation_result['valid']:
+                            logger.warning(
+                                f"Profile picture validation failed for parent {parent.user.email}: "
+                                f"{validation_result['error']}"
+                            )
+                            raise ParentProfileError(
+                                f"Profile picture validation failed: {validation_result['error']}"
+                            )
+
+                        logger.info(f"Profile picture validation passed for parent {parent.user.email}")
+
+                        # Save the validated URL to the user model
+                        parent.user.profile_picture_url = new_profile_url
+                        parent.user.save(update_fields=['profile_picture_url', 'updated_at'])
+
+                    elif new_profile_url == "":
+                        # Allow clearing the profile picture
+                        parent.user.profile_picture_url = ""
+                        parent.user.save(update_fields=['profile_picture_url', 'updated_at'])
+
+                        # Also clear face embedding if profile picture is removed
+                        if parent.face_embedding:
+                            parent.clear_face_embedding()
+                            logger.info(f"Cleared face embedding for parent {parent.user.email} due to profile picture removal")
+
+                # Handle communication preferences specially
+                if 'communication_preferences' in update_data:
+                    prefs = update_data.pop('communication_preferences')
+                    ParentService._update_communication_preferences(parent, prefs)
+
+                # Update other allowed fields on parent model
+                updated_fields = []
+                allowed_fields = [
+                    'first_name', 'last_name', 'phone_number',
+                    'address_line1', 'address_line2', 'city',
+                    'state_province', 'postal_code', 'country'
+                ]
+
+                for field, value in update_data.items():
+                    if field in allowed_fields and hasattr(parent, field):
+                        setattr(parent, field, value)
+                        updated_fields.append(field)
+
+                if updated_fields:
+                    updated_fields.append('updated_at')
+                    parent.save(update_fields=updated_fields)
+                    logger.info(f"Updated parent profile for {parent.user.email}: {updated_fields}")
+
+                return parent
+
+        except ParentProfileError:
+            # Re-raise validation errors without wrapping
+            raise
+        except Exception as e:
+            logger.error(f"Failed to update parent profile for {parent.user.email}: {str(e)}")
+            raise ParentProfileError(f"Failed to update profile: {str(e)}")
     @staticmethod
     def _update_communication_preferences(parent: Parent, preferences: Dict[str, Any]) -> None:
         """

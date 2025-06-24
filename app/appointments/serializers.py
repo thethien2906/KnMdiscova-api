@@ -654,158 +654,36 @@ class StartOnlineSessionSerializer(serializers.Serializer):
         return appointment
 
 
-from rest_framework import serializers
-from django.core.files.uploadedfile import InMemoryUploadedFile
-from django.utils.translation import gettext_lazy as _
-from PIL import Image
-import io
-
-
 class FaceVerificationSerializer(serializers.Serializer):
     """
-    Serializer for face verification request
+    Serializer for face verification requests
     """
     image = serializers.ImageField(
         required=True,
-        help_text="Live captured image of the parent's face"
-    )
-    parent_id = serializers.UUIDField(
-        required=False,
-        help_text="Optional parent ID for explicit verification"
+        help_text=_("Live image captured by psychologist for face verification")
     )
 
     def validate_image(self, value):
-        """
-        Validate the uploaded image
-        """
-        # Check file size (max 10MB)
-        if value.size > 10 * 1024 * 1024:
-            raise serializers.ValidationError(
-                _("Image file too large. Size should not exceed 10MB.")
-            )
+        """Validate uploaded image"""
+        # Check file size (max 5MB)
+        if value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError(_("Image file too large. Maximum size is 5MB."))
 
-        # Validate image format
-        try:
-            # Open image to verify it's valid
-            img = Image.open(value)
-
-            # Check format
-            if img.format not in ['JPEG', 'JPG', 'PNG']:
-                raise serializers.ValidationError(
-                    _("Invalid image format. Supported formats: JPEG, PNG")
-                )
-
-            # Check minimum dimensions
-            width, height = img.size
-            if width < 200 or height < 200:
-                raise serializers.ValidationError(
-                    _("Image too small. Minimum dimensions: 200x200 pixels")
-                )
-
-            # Reset file position
-            value.seek(0)
-
-        except Exception as e:
-            raise serializers.ValidationError(
-                _("Invalid image file. Please upload a valid image.")
-            )
+        # Check file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/jpg']
+        if hasattr(value, 'content_type') and value.content_type not in allowed_types:
+            raise serializers.ValidationError(_("Invalid image format. Please use JPEG or PNG."))
 
         return value
-
-    def validate(self, attrs):
-        """
-        Object-level validation
-        """
-        # Could add additional cross-field validation here if needed
-        return attrs
 
 
 class FaceVerificationResponseSerializer(serializers.Serializer):
     """
-    Serializer for face verification response
+    Serializer for face verification responses
     """
-    status = serializers.ChoiceField(
-        choices=['success', 'failure'],
-        help_text="Verification status"
-    )
-    message = serializers.CharField(
-        help_text="Human-readable message about the verification result"
-    )
-    appointment_status = serializers.CharField(
-        help_text="Current appointment status after verification attempt"
-    )
-    actual_start_time = serializers.DateTimeField(
-        required=False,
-        allow_null=True,
-        help_text="Actual start time if verification successful"
-    )
-
-
-class Base64ImageField(serializers.Field):
-    """
-    Custom field for handling base64 encoded images
-    Used if the mobile app sends base64 instead of multipart
-    """
-    def to_internal_value(self, data):
-        if not isinstance(data, str):
-            raise serializers.ValidationError("Image must be a base64 string")
-
-        # Check if it has the data URL prefix
-        if 'data:' in data and ';base64,' in data:
-            # Split header from data
-            header, data = data.split(';base64,')
-
-        try:
-            # Decode base64
-            import base64
-            decoded = base64.b64decode(data)
-
-            # Create a file-like object
-            file = io.BytesIO(decoded)
-
-            # Verify it's a valid image
-            img = Image.open(file)
-            file.seek(0)
-
-            return file.read()
-
-        except Exception as e:
-            raise serializers.ValidationError(
-                f"Invalid base64 image data: {str(e)}"
-            )
-
-    def to_representation(self, value):
-        # Not used for input-only field
-        return None
-
-
-class AlternativeFaceVerificationSerializer(serializers.Serializer):
-    """
-    Alternative serializer if mobile app sends base64 encoded image
-    """
-    image = Base64ImageField(
-        required=True,
-        help_text="Base64 encoded image of the parent's face"
-    )
-    parent_id = serializers.UUIDField(
-        required=False,
-        help_text="Optional parent ID for explicit verification"
-    )
-
-    def validate(self, attrs):
-        """
-        Ensure image data is present and valid
-        """
-        if not attrs.get('image'):
-            raise serializers.ValidationError({
-                'image': _('Image data is required')
-            })
-
-        # Check size after decoding
-        image_data = attrs['image']
-        if len(image_data) > 10 * 1024 * 1024:
-            raise serializers.ValidationError({
-                'image': _('Image file too large. Size should not exceed 10MB.')
-            })
-
-        return attrs
+    status = serializers.ChoiceField(choices=['success', 'failure'])
+    message = serializers.CharField()
+    appointment_status = serializers.CharField(required=False)
+    actual_start_time = serializers.DateTimeField(required=False)
+    confidence_score = serializers.FloatField(required=False)
+    parent_name = serializers.CharField(required=False)

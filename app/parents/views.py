@@ -16,11 +16,14 @@ from .serializers import (
     ParentDetailSerializer,
     ParentSummarySerializer,
     CommunicationPreferencesSerializer,
-    ParentSearchSerializer
+    ParentSearchSerializer,
+    FaceVerificationStatusSerializer,
+    RegenerateFaceEmbeddingSerializer
 )
 from .services import ParentService, ParentProfileError, ParentNotFoundError
+from appointments.services import FaceVerificationService, FaceVerificationError
 from .permissions import IsParentOwnerOrReadOnly, IsParentOwner
-
+from .signals import face_embedding_requested
 logger = logging.getLogger(__name__)
 
 
@@ -105,17 +108,17 @@ class ParentProfileViewSet(GenericViewSet):
                     'profile': {'first_name': 'John', 'last_name': 'Doe'}
                 }
             },
-            400: {'description': 'Invalid data provided'},
+            400: {'description': 'Invalid data provided or image validation failed'},
             403: {'description': 'Profile update not allowed'}
         },
-        description="Update current parent's profile",
+        description="Update current parent's profile with image validation",
         tags=['Parent Profile']
     )
     @action(detail=False, methods=['patch'])
     def update_profile(self, request):
         """
         Update current parent's profile
-        PATCH /api/parents/profile/
+        PATCH /api/parents/profile/update_profile/  # Note: update this to match your URL
         """
         try:
             parent = self.get_current_parent()
@@ -133,8 +136,8 @@ class ParentProfileViewSet(GenericViewSet):
                     # Validate profile data according to business rules
                     validated_data = ParentService.validate_profile_data(serializer.validated_data)
 
-                    # Update profile using service
-                    updated_parent = ParentService.update_parent_profile(parent, validated_data)
+                    # Update profile using service with image validation
+                    updated_parent = ParentService.update_parent_profile_with_image_validation(parent, validated_data)
 
                     # Return updated profile data
                     profile_data = ParentService.get_parent_profile_data(updated_parent)
@@ -146,6 +149,7 @@ class ParentProfileViewSet(GenericViewSet):
                     }, status=status.HTTP_200_OK)
 
                 except ParentProfileError as e:
+                    # Handle validation errors (including image validation failures)
                     return Response({
                         'error': str(e)
                     }, status=status.HTTP_400_BAD_REQUEST)
@@ -301,7 +305,191 @@ class ParentProfileViewSet(GenericViewSet):
             return Response({
                 'error': _('Failed to reset communication preferences')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+    from parents.signals import face_embedding_requested
 
+    @extend_schema(
+        responses={
+            200: FaceVerificationStatusSerializer,
+            404: {'description': 'Parent profile not found'}
+        },
+        description="Get current parent's face verification status",
+        tags=['Parent Profile']
+    )
+    @action(detail=False, methods=['get'], url_path='face-verification-status')
+    def face_verification_status(self, request):
+        """
+        Get face verification status for current parent
+        GET /api/parents/profile/face-verification-status/
+        """
+        try:
+            parent = self.get_current_parent()
+
+            status_data = FaceVerificationService.get_parent_embedding_status(parent)
+
+            serializer = FaceVerificationStatusSerializer(status_data)
+
+            logger.info(f"Face verification status accessed by: {request.user.email}")
+
+            # NOW THIS WORKS: `status` refers to the imported module
+            return Response(serializer.data, status=status.HTTP_200_OK)
+
+        except ParentProfileError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error getting face verification status for {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to get face verification status')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    @extend_schema(
+        request=RegenerateFaceEmbeddingSerializer,
+        responses={
+            200: {
+                'description': 'Face embedding generation triggered',
+                'example': {
+                    'message': 'Face embedding generation started',
+                    'task_id': 'celery-task-uuid',
+                    'estimated_completion': '2-3 minutes'
+                }
+            },
+            400: {'description': 'Cannot generate embedding'},
+            404: {'description': 'Parent profile not found'}
+        },
+        description="Trigger face embedding generation/regeneration",
+        tags=['Parent Profile']
+    )
+    @action(detail=False, methods=['post'], url_path='generate-face-embedding')
+    def generate_face_embedding(self, request):
+        """
+        Trigger face embedding generation for current parent
+        POST /api/parents/profile/generate-face-embedding/
+        """
+        try:
+            parent = self.get_current_parent()
+
+            serializer = RegenerateFaceEmbeddingSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+            force_regenerate = serializer.validated_data.get('force_regenerate', False)
+
+            # Check if parent has profile picture
+            if not parent.user.profile_picture_url:
+                return Response({
+                    'error': _('Please upload a profile picture first'),
+                    'action_required': 'UPLOAD_PICTURE'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if embedding already exists and force_regenerate is False
+            if parent.face_embedding and not force_regenerate:
+                return Response({
+                    'message': _('Face embedding already exists. Use force_regenerate=true to regenerate.'),
+                    'has_embedding': True,
+                    'embedding_created_at': parent.face_embedding_created_at
+                }, status=status.HTTP_200_OK)
+
+            try:
+                # Validate profile picture first
+                validation_result = FaceVerificationService.validate_profile_picture_for_embedding(
+                    parent.user.profile_picture_url
+                )
+
+                if not validation_result['valid']:
+                    return Response({
+                        'error': validation_result['error'],
+                        'error_code': validation_result.get('error_code'),
+                        'action_required': 'UPDATE_PICTURE'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Trigger embedding generation via signal
+                task_id = face_embedding_requested.send(
+                    sender=self.__class__,
+                    user_id=str(parent.user.id)
+                )
+
+                response_data = {
+                    'message': _('Face embedding generation started'),
+                    'profile_picture_url': parent.user.profile_picture_url,
+                    'estimated_completion': '2-3 minutes'
+                }
+
+                # Include task ID if available
+                if task_id and len(task_id) > 0:
+                    task_result = task_id[0][1]  # Signal returns list of (receiver, result) tuples
+                    if task_result:
+                        response_data['task_id'] = str(task_result)
+
+                logger.info(f"Face embedding generation triggered by: {request.user.email}")
+                return Response(response_data, status=status.HTTP_200_OK)
+
+            except FaceVerificationError as e:
+                return Response({
+                    'error': str(e),
+                    'error_code': 'VERIFICATION_ERROR'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except ParentProfileError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error generating face embedding for {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to generate face embedding')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+    @extend_schema(
+        responses={
+            200: {
+                'description': 'Face embedding cleared successfully',
+                'example': {
+                    'message': 'Face embedding cleared successfully',
+                    'privacy_note': 'All biometric data has been removed'
+                }
+            },
+            404: {'description': 'Parent profile not found'}
+        },
+        description="Clear face embedding data (for privacy/GDPR compliance)",
+        tags=['Parent Profile']
+    )
+    @action(detail=False, methods=['delete'], url_path='clear-face-embedding')
+    def clear_face_embedding(self, request):
+        """
+        Clear face embedding data for privacy/GDPR compliance
+        DELETE /api/parents/profile/clear-face-embedding/
+        """
+        try:
+            parent = self.get_current_parent()
+
+            if not parent.face_embedding:
+                return Response({
+                    'message': _('No face embedding data to clear'),
+                    'has_embedding': False
+                }, status=status.HTTP_200_OK)
+
+            # Clear the embedding
+            parent.clear_face_embedding()
+
+            logger.info(f"Face embedding cleared for user: {request.user.email}")
+            return Response({
+                'message': _('Face embedding cleared successfully'),
+                'privacy_note': _('All biometric data has been removed'),
+                'has_embedding': False
+            }, status=status.HTTP_200_OK)
+
+        except ParentProfileError as e:
+            return Response({
+                'error': str(e)
+            }, status=status.HTTP_404_NOT_FOUND)
+        except Exception as e:
+            logger.error(f"Error clearing face embedding for {request.user.email}: {str(e)}")
+            return Response({
+                'error': _('Failed to clear face embedding')
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class ParentManagementViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """
