@@ -132,6 +132,7 @@ celerybeat.pid
 .env.dev
 .env.prod
 .env.ssl
+.env.kotlin
 .venv
 env/
 venv/
