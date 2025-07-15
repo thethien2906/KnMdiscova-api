@@ -1024,38 +1024,41 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
         request=FaceVerificationSerializer,
         responses={
             200: FaceVerificationResponseSerializer,
-            400: {
-                'description': 'Face verification failed',
-                'examples': [
-                    OpenApiExample(
-                        'No Face Detected',
-                        value={
-                            'status': 'failure',
-                            'message': 'No face detected in the image. Please ensure the parent is clearly visible.',
-                            'error_code': 'NO_FACE_DETECTED'
-                        }
-                    ),
-                    OpenApiExample(
-                        'Multiple Faces',
-                        value={
-                            'status': 'failure',
-                            'message': 'Multiple faces detected. Please ensure only the parent is in the image.',
-                            'error_code': 'MULTIPLE_FACES'
-                        }
-                    ),
-                    OpenApiExample(
-                        'No Embedding',
-                        value={
-                            'status': 'failure',
-                            'message': 'Parent does not have a face embedding. Please ask them to update their profile picture.',
-                            'error_code': 'NO_EMBEDDING'
-                        }
-                    )
-                ]
-            },
+            # The 400 response is now a simple dictionary
+            400: {'description': 'Face verification failed'},
             403: {'description': 'Permission denied - only assigned psychologist can verify'},
             404: {'description': 'Appointment not found'}
         },
+        # The 'examples' list is now at the top level
+        examples=[
+            OpenApiExample(
+                'No Face Detected',
+                value={
+                    'status': 'failure',
+                    'message': 'No face detected in the image. Please ensure the parent is clearly visible.',
+                    'error_code': 'NO_FACE_DETECTED'
+                },
+                status_codes=['400']  # Link this example to the 400 status code
+            ),
+            OpenApiExample(
+                'Multiple Faces',
+                value={
+                    'status': 'failure',
+                    'message': 'Multiple faces detected. Please ensure only the parent is in the image.',
+                    'error_code': 'MULTIPLE_FACES'
+                },
+                status_codes=['400']  # Link this example to the 400 status code
+            ),
+            OpenApiExample(
+                'No Embedding',
+                value={
+                    'status': 'failure',
+                    'message': 'Parent does not have a face embedding. Please ask them to update their profile picture.',
+                    'error_code': 'NO_EMBEDDING'
+                },
+                status_codes=['400']  # Link this example to the 400 status code
+            )
+        ],
         description="Verify parent identity using face recognition to start Initial Consultation session",
         tags=['Appointments']
     )
