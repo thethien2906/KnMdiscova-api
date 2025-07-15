@@ -513,3 +513,67 @@ class CanCompleteAppointment(permissions.BasePermission):
             return obj.psychologist == request.user.psychologist_profile
 
         return False
+
+
+from rest_framework import permissions
+from django.utils.translation import gettext_lazy as _
+
+
+class CanVerifyAppointmentSession(permissions.BasePermission):
+    """
+    Permission to verify appointment sessions via face scan.
+    Only psychologists can verify their own appointments.
+    """
+
+    message = _("Only psychologists can verify appointment sessions.")
+
+    def has_permission(self, request, view):
+        """
+        Check if user is authenticated and is a psychologist
+        """
+        # User must be authenticated
+        if not request.user or not request.user.is_authenticated:
+            return False
+
+        # User must be a psychologist
+        if request.user.user_type != 'Psychologist':
+            self.message = _("Only psychologists can perform session verification.")
+            return False
+
+        # Check if psychologist profile exists and is verified
+        if hasattr(request.user, 'psychologist_profile'):
+            psychologist = request.user.psychologist_profile
+            if psychologist.verification_status != 'Approved':
+                self.message = _("Your psychologist profile must be approved to verify sessions.")
+                return False
+        else:
+            self.message = _("Psychologist profile not found.")
+            return False
+
+        return True
+
+    def has_object_permission(self, request, view, obj):
+        """
+        Check if psychologist owns the appointment
+        """
+        # obj should be an Appointment instance
+        if not hasattr(obj, 'psychologist'):
+            return False
+
+        # Get psychologist profile
+        if not hasattr(request.user, 'psychologist_profile'):
+            return False
+
+        psychologist = request.user.psychologist_profile
+
+        # Check if appointment belongs to this psychologist
+        if obj.psychologist != psychologist:
+            self.message = _("You can only verify your own appointments.")
+            return False
+
+        # Check appointment type - only Initial Consultation can be verified
+        if obj.session_type != 'InitialConsultation':
+            self.message = _("Only Initial Consultation sessions can be verified via face scan.")
+            return False
+
+        return True

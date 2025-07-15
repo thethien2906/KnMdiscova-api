@@ -8,6 +8,7 @@ from django.utils.translation import gettext_lazy as _
 from drf_spectacular.utils import extend_schema, OpenApiParameter, OpenApiExample
 from drf_spectacular.types import OpenApiTypes
 import logging
+from rest_framework.parsers import MultiPartParser, FormParser, JSONParser
 from django.http import Http404
 from rest_framework.exceptions import PermissionDenied
 from datetime import date, timedelta
@@ -30,7 +31,9 @@ from .serializers import (
     AppointmentSlotCreateSerializer,
     AppointmentSlotSerializer,
     NoShowSerializer,
-    StartOnlineSessionSerializer
+    StartOnlineSessionSerializer,
+    FaceVerificationSerializer,
+    FaceVerificationResponseSerializer
 )
 from .services import (
     AppointmentBookingService,
@@ -44,7 +47,14 @@ from .services import (
     SlotNotAvailableError,
     InsufficientConsecutiveSlotsError,
     AppointmentSlotService,
-    SlotGenerationError
+    SlotGenerationError,
+    FaceVerificationService,
+    FaceVerificationError,
+    NoFaceDetectedError,
+    MultipleFacesDetectedError,
+    ParentEmbeddingNotFoundError,
+    ImageProcessingError
+
 
 )
 from .permissions import (
@@ -59,7 +69,8 @@ from .permissions import (
     IsParentAppointmentBooker,
     CanCompleteAppointment,
     AppointmentSlotPermissions,
-    CanManageSlots
+    CanManageSlots,
+    CanVerifyAppointmentSession
 )
 from psychologists.models import Psychologist
 from parents.services import ParentService, ParentNotFoundError
@@ -1009,7 +1020,186 @@ class AppointmentViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
                 'error': _('Failed to start online session')
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
+    @extend_schema(
+        request=FaceVerificationSerializer,
+        responses={
+            200: FaceVerificationResponseSerializer,
+            400: {
+                'description': 'Face verification failed',
+                'examples': [
+                    OpenApiExample(
+                        'No Face Detected',
+                        value={
+                            'status': 'failure',
+                            'message': 'No face detected in the image. Please ensure the parent is clearly visible.',
+                            'error_code': 'NO_FACE_DETECTED'
+                        }
+                    ),
+                    OpenApiExample(
+                        'Multiple Faces',
+                        value={
+                            'status': 'failure',
+                            'message': 'Multiple faces detected. Please ensure only the parent is in the image.',
+                            'error_code': 'MULTIPLE_FACES'
+                        }
+                    ),
+                    OpenApiExample(
+                        'No Embedding',
+                        value={
+                            'status': 'failure',
+                            'message': 'Parent does not have a face embedding. Please ask them to update their profile picture.',
+                            'error_code': 'NO_EMBEDDING'
+                        }
+                    )
+                ]
+            },
+            403: {'description': 'Permission denied - only assigned psychologist can verify'},
+            404: {'description': 'Appointment not found'}
+        },
+        description="Verify parent identity using face recognition to start Initial Consultation session",
+        tags=['Appointments']
+    )
+    @action(
+        detail=True,
+        methods=['post'],
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[permissions.IsAuthenticated, IsPsychologistAppointmentProvider]
+    )
+    def verify_face(self, request, pk=None):
+        """
+        Verify parent's face for session start
+        POST /api/appointments/{id}/verify-face/
+        """
+        try:
+            appointment = self.get_object()
 
+            # Additional business logic validation
+            if appointment.session_type != 'InitialConsultation':
+                return Response({
+                    'status': 'failure',
+                    'message': _('Face verification is only available for Initial Consultation sessions'),
+                    'error_code': 'INVALID_SESSION_TYPE'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            if appointment.appointment_status != 'Scheduled':
+                return Response({
+                    'status': 'failure',
+                    'message': _('Can only verify face for scheduled appointments'),
+                    'error_code': 'INVALID_STATUS'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Check if already verified
+            if appointment.session_verified_at:
+                return Response({
+                    'status': 'success',
+                    'message': _('Session already verified'),
+                    'appointment_status': appointment.appointment_status,
+                    'actual_start_time': appointment.actual_start_time,
+                    'session_verified_at': appointment.session_verified_at
+                }, status=status.HTTP_200_OK)
+
+            # Validate request data
+            serializer = FaceVerificationSerializer(data=request.data)
+            if not serializer.is_valid():
+                return Response({
+                    'status': 'failure',
+                    'message': _('Invalid image data'),
+                    'errors': serializer.errors,
+                    'error_code': 'VALIDATION_ERROR'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # Extract image data
+            image_file = serializer.validated_data['image']
+            image_data = image_file.read()
+
+            # Perform face verification
+            try:
+                verification_result = FaceVerificationService.verify_parent_for_session(
+                    appointment, image_data
+                )
+
+                if verification_result['is_match']:
+                    # Verification successful
+                    response_data = {
+                        'status': 'success',
+                        'message': _('Face verification successful. Session started.'),
+                        'appointment_status': 'In_Progress',
+                        'actual_start_time': appointment.actual_start_time,
+                        'confidence_score': verification_result['confidence_score'],
+                        'parent_name': verification_result['parent_name']
+                    }
+
+                    logger.info(
+                        f"Face verification successful for appointment {appointment.appointment_id} "
+                        f"by psychologist {request.user.email}"
+                    )
+
+                    return Response(response_data, status=status.HTTP_200_OK)
+
+                else:
+                    # Verification failed - face not recognized
+                    response_data = {
+                        'status': 'failure',
+                        'message': _('Face not recognized. Please ensure this is the correct parent.'),
+                        'appointment_status': appointment.appointment_status,
+                        'confidence_score': verification_result['confidence_score'],
+                        'error_code': 'FACE_NOT_RECOGNIZED'
+                    }
+
+                    logger.warning(
+                        f"Face verification failed for appointment {appointment.appointment_id} "
+                        f"- face not recognized (confidence: {verification_result['confidence_score']})"
+                    )
+
+                    return Response(response_data, status=status.HTTP_400_BAD_REQUEST)
+
+            except NoFaceDetectedError:
+                return Response({
+                    'status': 'failure',
+                    'message': _('No face detected in the image. Please ensure the parent is clearly visible.'),
+                    'appointment_status': appointment.appointment_status,
+                    'error_code': 'NO_FACE_DETECTED'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except MultipleFacesDetectedError:
+                return Response({
+                    'status': 'failure',
+                    'message': _('Multiple faces detected. Please ensure only the parent is in the image.'),
+                    'appointment_status': appointment.appointment_status,
+                    'error_code': 'MULTIPLE_FACES'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except ParentEmbeddingNotFoundError:
+                return Response({
+                    'status': 'failure',
+                    'message': _('Parent does not have a face embedding. Please ask them to update their profile picture.'),
+                    'appointment_status': appointment.appointment_status,
+                    'error_code': 'NO_EMBEDDING'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except ImageProcessingError as e:
+                return Response({
+                    'status': 'failure',
+                    'message': f"Image processing error: {str(e)}",
+                    'appointment_status': appointment.appointment_status,
+                    'error_code': 'IMAGE_PROCESSING_ERROR'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            except FaceVerificationError as e:
+                return Response({
+                    'status': 'failure',
+                    'message': str(e),
+                    'appointment_status': appointment.appointment_status,
+                    'error_code': 'VERIFICATION_ERROR'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            logger.error(f"Unexpected error in face verification for appointment {pk}: {str(e)}")
+            return Response({
+                'status': 'failure',
+                'message': _('Face verification failed due to server error'),
+                'error_code': 'SERVER_ERROR'
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 class AppointmentSlotViewSet(GenericViewSet, ListModelMixin, RetrieveModelMixin):
     """

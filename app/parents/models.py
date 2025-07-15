@@ -92,7 +92,17 @@ class Parent(models.Model):
         null=False,  # Explicitly set to ensure it's never null
         help_text=_("Notification and communication preferences")
     )
+    face_embedding = models.BinaryField(
+        null=True,
+        blank=True,
+        help_text="Facial recognition embedding for session verification"
+    )
 
+    face_embedding_created_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        help_text="When the face embedding was last generated"
+    )
     # Timestamps
     created_at = models.DateTimeField(
         _('created at'),
@@ -111,6 +121,8 @@ class Parent(models.Model):
             models.Index(fields=['first_name', 'last_name']),
             models.Index(fields=['city', 'state_province']),
             models.Index(fields=['created_at']),
+            models.Index(fields=['face_embedding_created_at']),
+            models.Index(fields=['user', 'face_embedding'])
         ]
 
     def __str__(self):
@@ -169,3 +181,24 @@ class Parent(models.Model):
             'new_message_alerts': True,
             'marketing_emails': False,
         }
+
+    @property
+    def has_face_verification(self):
+        """Check if parent has face verification enabled"""
+        return bool(self.face_embedding)
+
+    @property
+    def face_verification_status(self):
+        """Get face verification status"""
+        from appointments.services.face_verification_service import FaceVerificationService
+        return FaceVerificationService.get_parent_embedding_status(self)
+
+    def can_verify_sessions(self):
+        """Check if parent can verify sessions via face recognition"""
+        return bool(self.face_embedding and self.user.profile_picture_url)
+
+    def clear_face_embedding(self):
+        """Clear face embedding data (for privacy/GDPR compliance)"""
+        self.face_embedding = None
+        self.face_embedding_created_at = None
+        self.save(update_fields=['face_embedding', 'face_embedding_created_at', 'updated_at'])

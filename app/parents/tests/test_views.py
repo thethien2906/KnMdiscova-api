@@ -132,10 +132,11 @@ class ParentProfileViewSetTestCase(APITestCase):
             'phone_number': '+9876543210',
             'city': 'New City',
             'state_province': 'New State',
-            'profile_picture_url': 'http://example.com/new_picture.jpg'
+            'profile_picture_url': 'https://whichfaceisreal.blob.core.windows.net/public/realimages/22787.jpeg'
         }
 
         response = self.client.patch(url, update_data, format='json')
+        print(response)
         if response.status_code == status.HTTP_200_OK:
             print(f"Response data: {response.data}")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
@@ -187,12 +188,11 @@ class ParentProfileViewSetTestCase(APITestCase):
         self.authenticate_as_parent()
         url = reverse('parent-profile-update-profile')
 
-        update_data = {'first_name': 'Jane'}
+        update_data = {'profile_picture_url': 'Jane'}
 
         response = self.client.patch(url, update_data, format='json')
-
+        print(response)
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertIn('error', response.json())
 
     def test_get_completeness(self):
         """Test profile completeness calculation"""

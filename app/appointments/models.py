@@ -508,9 +508,17 @@ class Appointment(models.Model):
         _('session verified at'),
         null=True,
         blank=True,
-        help_text=_("When the session was verified via QR code")
+        # help_text=_("When the session was verified via QR code")
+        help_text="Timestamp when session was verified via face scan"
     )
-
+    session_verified_by = models.ForeignKey(
+        'psychologists.Psychologist',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='verified_sessions',
+        help_text="Psychologist who performed the verification"
+    )
     # Notes
     parent_notes = models.TextField(
         _('parent notes'),

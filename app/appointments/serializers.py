@@ -652,3 +652,38 @@ class StartOnlineSessionSerializer(serializers.Serializer):
         appointment = self.context.get('appointment')
         appointment.start_online_session()
         return appointment
+
+
+class FaceVerificationSerializer(serializers.Serializer):
+    """
+    Serializer for face verification requests
+    """
+    image = serializers.ImageField(
+        required=True,
+        help_text=_("Live image captured by psychologist for face verification")
+    )
+
+    def validate_image(self, value):
+        """Validate uploaded image"""
+        # Check file size (max 5MB)
+        if value.size > 5 * 1024 * 1024:
+            raise serializers.ValidationError(_("Image file too large. Maximum size is 5MB."))
+
+        # Check file type
+        allowed_types = ['image/jpeg', 'image/png', 'image/jpg']
+        if hasattr(value, 'content_type') and value.content_type not in allowed_types:
+            raise serializers.ValidationError(_("Invalid image format. Please use JPEG or PNG."))
+
+        return value
+
+
+class FaceVerificationResponseSerializer(serializers.Serializer):
+    """
+    Serializer for face verification responses
+    """
+    status = serializers.ChoiceField(choices=['success', 'failure'])
+    message = serializers.CharField()
+    appointment_status = serializers.CharField(required=False)
+    actual_start_time = serializers.DateTimeField(required=False)
+    confidence_score = serializers.FloatField(required=False)
+    parent_name = serializers.CharField(required=False)
